@@ -102,6 +102,35 @@ def load_pretrained_strict_false(model: nn.Module, ckpt_path: str) -> None:
     print(f"[weights] loaded={len(loadable)} skipped={skipped}")
 
 
+def set_backbone_trainable(model: nn.Module, trainable: bool) -> None:
+    # Keep the final classifier trainable during warmup.
+    for name, p in model.named_parameters():
+        if "encoder_q.proj.fc" in name:
+            p.requires_grad = True
+        else:
+            p.requires_grad = trainable
+
+
+def build_optimizer(model: nn.Module, base_lr: float, weight_decay: float, head_lr_mult: float) -> torch.optim.Optimizer:
+    head_params = []
+    body_params = []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if "encoder_q.proj.fc" in name:
+            head_params.append(p)
+        else:
+            body_params.append(p)
+
+    param_groups = []
+    if body_params:
+        param_groups.append({"params": body_params, "lr": base_lr})
+    if head_params:
+        param_groups.append({"params": head_params, "lr": base_lr * head_lr_mult})
+
+    return torch.optim.AdamW(param_groups, weight_decay=weight_decay)
+
+
 @dataclass
 class EvalResult:
     loss: float
@@ -196,7 +225,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--weight-decay", type=float, default=5e-4)
+    p.add_argument("--dropout", type=float, default=0.3)
+    p.add_argument("--head-lr-mult", type=float, default=5.0)
+    p.add_argument("--freeze-epochs", type=int, default=5, help="Train classifier head only for first N epochs")
     p.add_argument("--patience", type=int, default=12, help="Early stop after N epochs without val improvement")
     p.add_argument("--min-delta", type=float, default=1e-4, help="Minimum val acc improvement to reset patience")
     p.add_argument("--seed", type=int, default=42)
@@ -218,12 +250,19 @@ def main() -> None:
     )
     print(f"[data] train={len(train_loader.dataset)} val={len(val_loader.dataset)} test={len(test_loader.dataset)}")
 
-    model = MASA(skeleton_representation="graph-based", num_class=args.num_class, pretrain=False)
+    model = MASA(
+        skeleton_representation="graph-based",
+        num_class=args.num_class,
+        pretrain=False,
+        dropout=args.dropout,
+    )
     model.to(device)
     load_pretrained_strict_false(model, args.pretrained)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    set_backbone_trainable(model, trainable=False)
+    optimizer = build_optimizer(model, args.lr, args.weight_decay, args.head_lr_mult)
+    print(f"[warmup] head-only training for first {args.freeze_epochs} epochs")
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -238,6 +277,12 @@ def main() -> None:
 
     for epoch in range(1, args.epochs + 1):
         print(f"\n[epoch {epoch}/{args.epochs}]")
+
+        if epoch == args.freeze_epochs + 1:
+            set_backbone_trainable(model, trainable=True)
+            optimizer = build_optimizer(model, args.lr, args.weight_decay, args.head_lr_mult)
+            print("[unfreeze] backbone parameters are now trainable")
+
         tr = run_epoch(model, train_loader, criterion, optimizer, device, train=True)
         va = run_epoch(model, val_loader, criterion, optimizer, device, train=False)
         print(f"train: loss={tr.loss:.4f} acc={tr.acc:.4f} | val: loss={va.loss:.4f} acc={va.acc:.4f}")

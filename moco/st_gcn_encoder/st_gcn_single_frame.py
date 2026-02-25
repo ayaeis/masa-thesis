@@ -147,7 +147,7 @@ class Model(nn.Module):
             x_i = self.graph_max_pool(x_i, (1, num_node))
             x_sub1 = torch.cat((x_sub1, x_i), -1) if i > 0 else x_i # Final to N, C, T, (NUM_SUB_PARTS)
 
-        x_sub1, _ = self.st_gcn_pool[0](x_sub1.view(N, -1, 1, T*len(self.graph.part)), self.A_pool.clone())  # N, 512, 1, (T*NUM_SUB_PARTS)
+        x_sub1, _ = self.st_gcn_pool[0](x_sub1.view(N, -1, 1, T*len(self.graph.part)), self.A_pool.clone())  # N, 512, 1, (T*NUM_SUB_PARTS)f
         x_sub1, _ = self.st_gcn_pool[1](x_sub1, self.A_pool.clone())  # N, 512, 1, (T*NUM_SUB_PARTS)
         x_sub1 = x_sub1.view(N, -1, T, len(self.graph.part))
 
@@ -236,7 +236,7 @@ class st_gcn(nn.Module):
 
 
         )
-
+ 
         if not residual:
             self.residual = lambda x: 0
 

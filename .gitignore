@@ -1,6 +1,28 @@
-.venv/
-checkpoints/
-*.pth
-*.tar
+# datasets
+data/
+datasets/
 archive/
+*.zip
+
+# checkpoints
+checkpoints/
+runs/
+*.pt
+*.pth
+*.ckpt
+
+# virtual environments
+venv/
+env/
+.venv/
+
+# python
 __pycache__/
+*.pyc
+
+# jupyter
+.ipynb_checkpoints/
+
+# misc
+*.log
+.DS_Store

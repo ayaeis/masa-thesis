@@ -257,6 +257,8 @@ def parse_args():
     p.add_argument("--min-delta", type=float, default=0.0)
     p.add_argument("--target-t", type=int, default=32)
     p.add_argument("--seed", type=int, default=123)
+    p.add_argument("--use-ghost-conv", action="store_true")
+    p.add_argument("--ghost-ratio", type=int, default=2)
     p.add_argument("--out-dir", type=str, default="./checkpoints_finetune_wlasl100_index")
     p.add_argument(
         "--temporal-sampling",
@@ -337,6 +339,8 @@ def main():
         skeleton_representation="graph-based",
         num_class=args.num_class,
         pretrain=False,
+        use_ghost_conv=args.use_ghost_conv,
+        ghost_ratio=args.ghost_ratio,
     )
 
     model.to(device)

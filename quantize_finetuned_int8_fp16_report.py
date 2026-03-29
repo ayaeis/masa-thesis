@@ -114,12 +114,23 @@ def replace_int8_supported_layers(module: nn.Module) -> Dict[str, int]:
 
 
 class WLASLSupervisedEval(Dataset):
-    def __init__(self, base_ds: Dataset, target_t: int):
+    def __init__(self, base_ds: Dataset, target_t: int, temporal_sampling: str = "index"):
         self.base_ds = base_ds
         self.target_t = target_t
+        self.temporal_sampling = temporal_sampling
 
     def __len__(self) -> int:
         return len(self.base_ds)
+
+    def _sample_indices_center(self, t: int) -> torch.Tensor:
+        target = self.target_t
+        if t == target:
+            return torch.arange(t, dtype=torch.long)
+        if t < target:
+            return torch.linspace(0, t - 1, steps=target).round().long()
+        edges = torch.linspace(0, t, steps=target + 1)
+        centers = ((edges[:-1] + edges[1:]) * 0.5).long()
+        return torch.clamp(centers, 0, t - 1)
 
     @staticmethod
     def _resample_time(x: torch.Tensor, target_t: int, mode: str) -> torch.Tensor:
@@ -149,11 +160,19 @@ class WLASLSupervisedEval(Dataset):
         lm = left["mask"].float()
         y = int(right["label"])
 
-        rh = self._resample_time(rh, self.target_t, mode="linear")
-        lh = self._resample_time(lh, self.target_t, mode="linear")
-        bd = self._resample_time(bd, self.target_t, mode="linear")
-        rm = self._resample_time(rm, self.target_t, mode="nearest")
-        lm = self._resample_time(lm, self.target_t, mode="nearest")
+        if self.temporal_sampling == "index":
+            idx = self._sample_indices_center(rh.shape[0])
+            rh = rh[idx]
+            lh = lh[idx]
+            bd = bd[idx]
+            rm = rm[idx]
+            lm = lm[idx]
+        else:
+            rh = self._resample_time(rh, self.target_t, mode="linear")
+            lh = self._resample_time(lh, self.target_t, mode="linear")
+            bd = self._resample_time(bd, self.target_t, mode="linear")
+            rm = self._resample_time(rm, self.target_t, mode="nearest")
+            lm = self._resample_time(lm, self.target_t, mode="nearest")
         mask = torch.cat([rm, lm], dim=0).float()
 
         return {"rh": rh, "lh": lh, "body": bd, "mask": mask, "label": y}
@@ -329,18 +348,17 @@ def evaluate_model(
             y = y.to(device, non_blocking=(device.type == "cuda"))
 
             if warmup_done < warmup_steps:
-                _ = model(x)
+                logits = model(x)
                 warmup_done += 1
-                continue
-
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-            t0 = time.perf_counter()
-            logits = model(x)
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-            t1 = time.perf_counter()
-            step_times.append((t1 - t0) * 1000.0)
+            else:
+                if device.type == "cuda":
+                    torch.cuda.synchronize()
+                t0 = time.perf_counter()
+                logits = model(x)
+                if device.type == "cuda":
+                    torch.cuda.synchronize()
+                t1 = time.perf_counter()
+                step_times.append((t1 - t0) * 1000.0)
 
             loss = criterion(logits, y)
             bs = y.size(0)
@@ -390,6 +408,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-class", type=int, default=100)
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--warmup-steps", type=int, default=5)
+    p.add_argument("--temporal-sampling", type=str, default="index", choices=["index", "interpolate"])
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -403,7 +422,7 @@ def main() -> None:
     print(f"[device] {device}")
 
     base_test = WLASL(data_root=args.data_root, data_split="test", subset_num=args.subset_num, use_cache=False)
-    ds_test = WLASLSupervisedEval(base_test, target_t=args.target_t)
+    ds_test = WLASLSupervisedEval(base_test, target_t=args.target_t, temporal_sampling=args.temporal_sampling)
     test_loader = DataLoader(
         ds_test,
         batch_size=args.batch_size,

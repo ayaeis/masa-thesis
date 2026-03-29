@@ -50,7 +50,8 @@ class joint2Dloss:
 class MASA(nn.Module):
     def __init__(self, skeleton_representation, num_class, dim=128, K=65536, m=0.999, T=0.07,
                  teacher_T=0.05, student_T=0.1, topk=1024, mlp=False, pretrain=True, dropout=None,
-                 inter_weight=0.5, inter_dist=False, topk_part=8192, K_part=16384):
+                 inter_weight=0.5, inter_dist=False, topk_part=8192, K_part=16384,
+                 use_ghost_conv=False, ghost_ratio=2):
         super(MASA, self).__init__()
         self.pretrain = pretrain
         RHand_Bone = [(2, 1), (3, 2), (4, 3), (5, 4), (6, 1), (7, 6), (8, 7), (9, 8), (10, 1),
@@ -62,6 +63,8 @@ class MASA(nn.Module):
             cfg = GCN_Transformer.Config()
             cfg.proj_dropout = dropout
             cfg.num_class = num_class
+            cfg.use_ghost_conv = use_ghost_conv
+            cfg.ghost_ratio = ghost_ratio
             self.encoder_q = GCN_Transformer.Model(cfg)
         else:
             self.K = K
@@ -79,9 +82,13 @@ class MASA(nn.Module):
             cfg_q = GCN_Transformer_mask.Config()
             cfg_q.proj_dropout = dropout
             cfg_q.inter_dist = inter_dist
+            cfg_q.use_ghost_conv = use_ghost_conv
+            cfg_q.ghost_ratio = ghost_ratio
             cfg_k = GCN_Transformer_mask.Config()
             cfg_k.proj_dropout = dropout
             cfg_k.inter_dist = inter_dist
+            cfg_k.use_ghost_conv = use_ghost_conv
+            cfg_k.ghost_ratio = ghost_ratio
             self.encoder_q = GCN_Transformer_mask.Model(cfg_q)
             self.encoder_k = GCN_Transformer_mask.Model(cfg_k)
             init_para_GCN_Trans(self.encoder_q)

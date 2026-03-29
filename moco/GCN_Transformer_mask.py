@@ -198,3 +198,5 @@ class Config:
     num_class = 128
     input_dim = 512
     inter_dist = False
+    use_ghost_conv = False
+    ghost_ratio = 2

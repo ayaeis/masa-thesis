@@ -3,6 +3,8 @@
 import torch
 import torch.nn as nn
 
+from moco.ghost_modules import GhostConv2d
+
 class ConvTemporalGraphical(nn.Module):
 
     """The basic module for applying a graph convolution.
@@ -26,18 +28,25 @@ class ConvTemporalGraphical(nn.Module):
                  t_stride=1,
                  t_padding=0,
                  t_dilation=1,
-                 bias=True):
+                 bias=True,
+                 use_ghost_conv=False,
+                 ghost_ratio=2):
         super(ConvTemporalGraphical,self).__init__()
 
         self.kernel_size = kernel_size
-        self.conv = nn.Conv2d(
+        conv_cls = GhostConv2d if use_ghost_conv else nn.Conv2d
+        kwargs = {}
+        if use_ghost_conv:
+            kwargs["ratio"] = ghost_ratio
+        self.conv = conv_cls(
             in_channels,
             out_channels * kernel_size,
             kernel_size=(t_kernel_size, 1),
             padding=(t_padding, 0),
             stride=(t_stride, 1),
             dilation=(t_dilation, 1),
-            bias=bias)
+            bias=bias,
+            **kwargs)
 
     def forward(self, x, A):
         assert A.size(0) == self.kernel_size

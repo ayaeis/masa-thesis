@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from moco.ghost_modules import GhostConv1d, GhostConv2d
 from moco.st_gcn_encoder.utils.tgcn import ConvTemporalGraphical
 from moco.st_gcn_encoder.utils.graph_frames import Graph
 from moco.st_gcn_encoder.utils.graph_frames_withpool_2 import Graph_pool
@@ -11,6 +12,40 @@ inter_channels = [128, 128, 256]
 
 fc_out = inter_channels[-1]
 fc_unit = 512
+
+
+def make_conv1d(in_channels, out_channels, kernel_size, stride=1, padding=0, use_ghost=False, ghost_ratio=2):
+    if use_ghost and kernel_size == 1:
+        return GhostConv1d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            ratio=ghost_ratio,
+        )
+    return nn.Conv1d(in_channels, out_channels, kernel_size, stride=stride, padding=padding)
+
+
+def make_conv2d(
+    in_channels,
+    out_channels,
+    kernel_size,
+    stride=1,
+    padding=0,
+    use_ghost=False,
+    ghost_ratio=2,
+):
+    if use_ghost and (kernel_size == 1 or kernel_size == (1, 1)):
+        return GhostConv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            ratio=ghost_ratio,
+        )
+    return nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding)
 
 class Model(nn.Module):
     """
@@ -44,6 +79,8 @@ class Model(nn.Module):
         self.cat = True
         self.inplace = True
         self.pad = opt.temporal_pad
+        self.use_ghost_conv = getattr(opt, "use_ghost_conv", False)
+        self.ghost_ratio = getattr(opt, "ghost_ratio", 2)
 
         # original graph
         self.graph = Graph(self.layout, self.strategy, pad=opt.temporal_pad)
@@ -64,27 +101,27 @@ class Model(nn.Module):
         self.data_bn = nn.BatchNorm1d(self.in_channels * self.graph.num_node_each, self.momentum)
 
         self.st_gcn_networks = nn.ModuleList((
-            st_gcn(self.in_channels, inter_channels[0], kernel_size, residual=False),
-            st_gcn(inter_channels[0], inter_channels[1], kernel_size),
-            st_gcn(inter_channels[1], inter_channels[2], kernel_size),
+            st_gcn(self.in_channels, inter_channels[0], kernel_size, residual=False, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            st_gcn(inter_channels[0], inter_channels[1], kernel_size, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            st_gcn(inter_channels[1], inter_channels[2], kernel_size, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
         ))
 
 
         self.st_gcn_pool = nn.ModuleList((
-            st_gcn(inter_channels[-1], fc_unit, kernel_size_pool),
-            st_gcn(fc_unit, fc_unit,kernel_size_pool),
+            st_gcn(inter_channels[-1], fc_unit, kernel_size_pool, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            st_gcn(fc_unit, fc_unit,kernel_size_pool, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
         ))
 
 
         self.conv4 = nn.Sequential(
-            nn.Conv2d(fc_unit, fc_unit, kernel_size=(1, 1), padding = (0, 0)),
+            make_conv2d(fc_unit, fc_unit, kernel_size=(1, 1), padding=(0, 0), use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
             nn.BatchNorm2d(fc_unit, momentum=self.momentum),
             nn.ReLU(inplace=self.inplace),
             nn.Dropout(0.25)
         )
 
         self.conv2 = nn.Sequential(
-            nn.Conv2d(fc_unit*2, fc_out, kernel_size=(1, 1), padding = (0, 0)),
+            make_conv2d(fc_unit * 2, fc_out, kernel_size=(1, 1), padding=(0, 0), use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
             nn.BatchNorm2d(fc_out, momentum=self.momentum),
             nn.ReLU(inplace=self.inplace),
             nn.Dropout(0.1)
@@ -96,12 +133,12 @@ class Model(nn.Module):
         fc_in = inter_channels[-1]+fc_out if self.cat else inter_channels[-1]
         self.fcn = nn.Sequential(
             nn.Dropout(0.1, inplace=True),
-            nn.Conv2d(fc_in, self.out_channels, kernel_size=1)
+            make_conv2d(fc_in, self.out_channels, kernel_size=1, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio)
         )
 
         # tcn block
-        self.tcn_full_b1 = TemporalConvNetBlock(fc_unit, fc_unit)
-        self.tcn_full_b2 = TemporalConvNetBlock(fc_unit, fc_unit)
+        self.tcn_full_b1 = TemporalConvNetBlock(fc_unit, fc_unit, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio)
+        self.tcn_full_b2 = TemporalConvNetBlock(fc_unit, fc_unit, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio)
 
     # Max pooling of size p. Must be a power of 2.
     def graph_max_pool(self, x, p,stride=None):
@@ -211,25 +248,35 @@ class st_gcn(nn.Module):
                  kernel_size,
                  stride=1,
                  dropout=0.05,
-                 residual=True):
+                 residual=True,
+                 use_ghost_conv=False,
+                 ghost_ratio=2):
 
         super(st_gcn,self).__init__()
         self.inplace = True
 
         self.momentum = 0.1
-        self.gcn = ConvTemporalGraphical(in_channels, out_channels, kernel_size)
+        self.gcn = ConvTemporalGraphical(
+            in_channels,
+            out_channels,
+            kernel_size,
+            use_ghost_conv=use_ghost_conv,
+            ghost_ratio=ghost_ratio,
+        )
 
         self.tcn = nn.Sequential(
 
             nn.BatchNorm2d(out_channels, momentum=self.momentum),
             nn.ReLU(inplace=self.inplace),
             nn.Dropout(0.05),
-            nn.Conv2d(
+            make_conv2d(
                 out_channels,
                 out_channels,
                 (1, 1),
                 (stride, 1),
-                padding = 0,
+                padding=0,
+                use_ghost=use_ghost_conv,
+                ghost_ratio=ghost_ratio,
             ),
             nn.BatchNorm2d(out_channels, momentum=self.momentum),
             nn.Dropout(dropout, inplace=self.inplace),
@@ -245,11 +292,14 @@ class st_gcn(nn.Module):
 
         else:
             self.residual = nn.Sequential(
-                nn.Conv2d(
+                make_conv2d(
                     in_channels,
                     out_channels,
                     kernel_size=1,
-                    stride=(stride, 1)),
+                    stride=(stride, 1),
+                    use_ghost=use_ghost_conv,
+                    ghost_ratio=ghost_ratio,
+                ),
                 nn.BatchNorm2d(out_channels, momentum=self.momentum),
             )
 
@@ -265,7 +315,7 @@ class st_gcn(nn.Module):
         return self.relu(x), A
 
 class TemporalConvNetBlock(nn.Module):
-    def __init__(self, num_inputs, num_outputs, dropout=0.0):
+    def __init__(self, num_inputs, num_outputs, dropout=0.0, use_ghost=False, ghost_ratio=2):
         super(TemporalConvNetBlock, self).__init__()
         # self.conv1d_5 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 5, stride=1, padding=2), nn.ReLU(inplace=True), nn.Dropout(dropout))
         # self.conv1d_3_1 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Dropout(dropout))
@@ -276,7 +326,15 @@ class TemporalConvNetBlock(nn.Module):
         self.conv1d_5 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 5, stride=1, padding=2), nn.ReLU(inplace=True), nn.Dropout(dropout))
         self.conv1d_3_1 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Dropout(dropout))
         self.conv1d_3_2 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Dropout(dropout))
-        self.conv1x1 = nn.Conv1d(num_outputs*2, num_outputs, 1, stride=1, padding=0)
+        self.conv1x1 = make_conv1d(
+            num_outputs * 2,
+            num_outputs,
+            1,
+            stride=1,
+            padding=0,
+            use_ghost=use_ghost,
+            ghost_ratio=ghost_ratio,
+        )
         self.relu = nn.ReLU(inplace=True)
 
         self.bn = nn.BatchNorm1d(num_outputs)

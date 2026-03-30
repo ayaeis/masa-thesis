@@ -259,6 +259,7 @@ def parse_args():
     p.add_argument("--seed", type=int, default=123)
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
+    p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--out-dir", type=str, default="./checkpoints_finetune_wlasl100_index")
     p.add_argument(
         "--temporal-sampling",
@@ -341,6 +342,7 @@ def main():
         pretrain=False,
         use_ghost_conv=args.use_ghost_conv,
         ghost_ratio=args.ghost_ratio,
+        ghost_mode=args.ghost_mode,
     )
 
     model.to(device)

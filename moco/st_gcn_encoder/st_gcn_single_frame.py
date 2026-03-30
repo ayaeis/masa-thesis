@@ -14,8 +14,29 @@ fc_out = inter_channels[-1]
 fc_unit = 512
 
 
-def make_conv1d(in_channels, out_channels, kernel_size, stride=1, padding=0, use_ghost=False, ghost_ratio=2):
-    if use_ghost and kernel_size == 1:
+def should_use_ghost(kernel_size, ghost_mode):
+    if ghost_mode == "all":
+        return True
+    if ghost_mode == "kernel1":
+        return kernel_size == 1 or kernel_size == (1, 1)
+    if ghost_mode == "gt1":
+        if isinstance(kernel_size, tuple):
+            return any(k > 1 for k in kernel_size)
+        return kernel_size > 1
+    return False
+
+
+def make_conv1d(
+    in_channels,
+    out_channels,
+    kernel_size,
+    stride=1,
+    padding=0,
+    use_ghost=False,
+    ghost_ratio=2,
+    ghost_mode="all",
+):
+    if use_ghost and should_use_ghost(kernel_size, ghost_mode):
         return GhostConv1d(
             in_channels,
             out_channels,
@@ -35,8 +56,9 @@ def make_conv2d(
     padding=0,
     use_ghost=False,
     ghost_ratio=2,
+    ghost_mode="all",
 ):
-    if use_ghost and (kernel_size == 1 or kernel_size == (1, 1)):
+    if use_ghost and should_use_ghost(kernel_size, ghost_mode):
         return GhostConv2d(
             in_channels,
             out_channels,
@@ -81,6 +103,7 @@ class Model(nn.Module):
         self.pad = opt.temporal_pad
         self.use_ghost_conv = getattr(opt, "use_ghost_conv", False)
         self.ghost_ratio = getattr(opt, "ghost_ratio", 2)
+        self.ghost_mode = getattr(opt, "ghost_mode", "all")
 
         # original graph
         self.graph = Graph(self.layout, self.strategy, pad=opt.temporal_pad)
@@ -101,27 +124,27 @@ class Model(nn.Module):
         self.data_bn = nn.BatchNorm1d(self.in_channels * self.graph.num_node_each, self.momentum)
 
         self.st_gcn_networks = nn.ModuleList((
-            st_gcn(self.in_channels, inter_channels[0], kernel_size, residual=False, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
-            st_gcn(inter_channels[0], inter_channels[1], kernel_size, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
-            st_gcn(inter_channels[1], inter_channels[2], kernel_size, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            st_gcn(self.in_channels, inter_channels[0], kernel_size, residual=False, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
+            st_gcn(inter_channels[0], inter_channels[1], kernel_size, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
+            st_gcn(inter_channels[1], inter_channels[2], kernel_size, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
         ))
 
 
         self.st_gcn_pool = nn.ModuleList((
-            st_gcn(inter_channels[-1], fc_unit, kernel_size_pool, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
-            st_gcn(fc_unit, fc_unit,kernel_size_pool, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            st_gcn(inter_channels[-1], fc_unit, kernel_size_pool, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
+            st_gcn(fc_unit, fc_unit,kernel_size_pool, use_ghost_conv=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
         ))
 
 
         self.conv4 = nn.Sequential(
-            make_conv2d(fc_unit, fc_unit, kernel_size=(1, 1), padding=(0, 0), use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            make_conv2d(fc_unit, fc_unit, kernel_size=(1, 1), padding=(0, 0), use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
             nn.BatchNorm2d(fc_unit, momentum=self.momentum),
             nn.ReLU(inplace=self.inplace),
             nn.Dropout(0.25)
         )
 
         self.conv2 = nn.Sequential(
-            make_conv2d(fc_unit * 2, fc_out, kernel_size=(1, 1), padding=(0, 0), use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio),
+            make_conv2d(fc_unit * 2, fc_out, kernel_size=(1, 1), padding=(0, 0), use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode),
             nn.BatchNorm2d(fc_out, momentum=self.momentum),
             nn.ReLU(inplace=self.inplace),
             nn.Dropout(0.1)
@@ -133,12 +156,12 @@ class Model(nn.Module):
         fc_in = inter_channels[-1]+fc_out if self.cat else inter_channels[-1]
         self.fcn = nn.Sequential(
             nn.Dropout(0.1, inplace=True),
-            make_conv2d(fc_in, self.out_channels, kernel_size=1, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio)
+            make_conv2d(fc_in, self.out_channels, kernel_size=1, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode)
         )
 
         # tcn block
-        self.tcn_full_b1 = TemporalConvNetBlock(fc_unit, fc_unit, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio)
-        self.tcn_full_b2 = TemporalConvNetBlock(fc_unit, fc_unit, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio)
+        self.tcn_full_b1 = TemporalConvNetBlock(fc_unit, fc_unit, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode)
+        self.tcn_full_b2 = TemporalConvNetBlock(fc_unit, fc_unit, use_ghost=self.use_ghost_conv, ghost_ratio=self.ghost_ratio, ghost_mode=self.ghost_mode)
 
     # Max pooling of size p. Must be a power of 2.
     def graph_max_pool(self, x, p,stride=None):
@@ -250,7 +273,8 @@ class st_gcn(nn.Module):
                  dropout=0.05,
                  residual=True,
                  use_ghost_conv=False,
-                 ghost_ratio=2):
+                 ghost_ratio=2,
+                 ghost_mode="all"):
 
         super(st_gcn,self).__init__()
         self.inplace = True
@@ -262,6 +286,7 @@ class st_gcn(nn.Module):
             kernel_size,
             use_ghost_conv=use_ghost_conv,
             ghost_ratio=ghost_ratio,
+            ghost_mode=ghost_mode,
         )
 
         self.tcn = nn.Sequential(
@@ -277,6 +302,7 @@ class st_gcn(nn.Module):
                 padding=0,
                 use_ghost=use_ghost_conv,
                 ghost_ratio=ghost_ratio,
+                ghost_mode=ghost_mode,
             ),
             nn.BatchNorm2d(out_channels, momentum=self.momentum),
             nn.Dropout(dropout, inplace=self.inplace),
@@ -299,6 +325,7 @@ class st_gcn(nn.Module):
                     stride=(stride, 1),
                     use_ghost=use_ghost_conv,
                     ghost_ratio=ghost_ratio,
+                    ghost_mode=ghost_mode,
                 ),
                 nn.BatchNorm2d(out_channels, momentum=self.momentum),
             )
@@ -315,7 +342,7 @@ class st_gcn(nn.Module):
         return self.relu(x), A
 
 class TemporalConvNetBlock(nn.Module):
-    def __init__(self, num_inputs, num_outputs, dropout=0.0, use_ghost=False, ghost_ratio=2):
+    def __init__(self, num_inputs, num_outputs, dropout=0.0, use_ghost=False, ghost_ratio=2, ghost_mode="all"):
         super(TemporalConvNetBlock, self).__init__()
         # self.conv1d_5 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 5, stride=1, padding=2), nn.ReLU(inplace=True), nn.Dropout(dropout))
         # self.conv1d_3_1 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Dropout(dropout))
@@ -323,9 +350,21 @@ class TemporalConvNetBlock(nn.Module):
         # self.conv1x1 = nn.Conv1d(num_outputs*2, num_outputs, 2, stride=2, padding=0)
         # self.relu = nn.ReLU(inplace=True)
         # self.bn = nn.BatchNorm1d(num_outputs)
-        self.conv1d_5 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 5, stride=1, padding=2), nn.ReLU(inplace=True), nn.Dropout(dropout))
-        self.conv1d_3_1 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Dropout(dropout))
-        self.conv1d_3_2 = nn.Sequential(nn.Conv1d(num_inputs, num_outputs, 3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Dropout(dropout))
+        self.conv1d_5 = nn.Sequential(
+            make_conv1d(num_inputs, num_outputs, 5, stride=1, padding=2, use_ghost=use_ghost, ghost_ratio=ghost_ratio, ghost_mode=ghost_mode),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+        self.conv1d_3_1 = nn.Sequential(
+            make_conv1d(num_inputs, num_outputs, 3, stride=1, padding=1, use_ghost=use_ghost, ghost_ratio=ghost_ratio, ghost_mode=ghost_mode),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
+        self.conv1d_3_2 = nn.Sequential(
+            make_conv1d(num_inputs, num_outputs, 3, stride=1, padding=1, use_ghost=use_ghost, ghost_ratio=ghost_ratio, ghost_mode=ghost_mode),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+        )
         self.conv1x1 = make_conv1d(
             num_outputs * 2,
             num_outputs,
@@ -334,6 +373,7 @@ class TemporalConvNetBlock(nn.Module):
             padding=0,
             use_ghost=use_ghost,
             ghost_ratio=ghost_ratio,
+            ghost_mode=ghost_mode,
         )
         self.relu = nn.ReLU(inplace=True)
 

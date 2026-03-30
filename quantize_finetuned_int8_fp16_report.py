@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -211,9 +212,24 @@ def infer_num_class(sd: Dict[str, torch.Tensor], default: int) -> int:
     return default
 
 
-def load_finetuned_model(ckpt_path: str, num_class: int, dropout: float) -> Tuple[nn.Module, Dict[str, int]]:
+def load_finetuned_model(
+    ckpt_path: str,
+    num_class: int,
+    dropout: float,
+    use_ghost_conv: bool,
+    ghost_ratio: int,
+    ghost_mode: str,
+) -> Tuple[nn.Module, Dict[str, int]]:
     sd = checkpoint_to_state_dict(ckpt_path)
-    model = MASA(skeleton_representation="graph-based", num_class=num_class, pretrain=False, dropout=dropout)
+    model = MASA(
+        skeleton_representation="graph-based",
+        num_class=num_class,
+        pretrain=False,
+        dropout=dropout,
+        use_ghost_conv=use_ghost_conv,
+        ghost_ratio=ghost_ratio,
+        ghost_mode=ghost_mode,
+    )
     msd = model.state_dict()
     loadable = {k: v for k, v in sd.items() if k in msd and msd[k].shape == v.shape}
     skipped = len(sd) - len(loadable)
@@ -314,6 +330,7 @@ class EvalResult:
     acc: float
     latency_ms_per_batch: float
     flops_per_batch: int
+    batch_size: int
     param_count_tensors: int
     model_size_mb: float
     dtype_numel: Dict[str, int]
@@ -333,19 +350,24 @@ def evaluate_model(
     param_count = state_dict_numel(model)
     dtype_stats = dtype_numel_stats(model)
 
-    meter = FlopsCounter()
-    meter.add_hooks(model)
-
     total = 0
     total_loss = 0.0
     correct = 0
     step_times: List[float] = []
+    step_flops: List[int] = []
     warmup_done = 0
+    measured_batch_size = None
 
     with torch.no_grad():
         for x, y in tqdm(loader, ncols=100, leave=False):
             x = {k: v.to(device=device, dtype=dtype, non_blocking=(device.type == "cuda")) for k, v in x.items()}
             y = y.to(device, non_blocking=(device.type == "cuda"))
+            bs = y.size(0)
+            if measured_batch_size is None:
+                measured_batch_size = bs
+
+            meter = FlopsCounter()
+            meter.add_hooks(model)
 
             if warmup_done < warmup_steps:
                 logits = model(x)
@@ -359,14 +381,14 @@ def evaluate_model(
                     torch.cuda.synchronize()
                 t1 = time.perf_counter()
                 step_times.append((t1 - t0) * 1000.0)
+                step_flops.append(meter.flops)
+
+            meter.clear()
 
             loss = criterion(logits, y)
-            bs = y.size(0)
             total += bs
             total_loss += float(loss.item()) * bs
             correct += int((torch.argmax(logits, dim=1) == y).sum().item())
-
-    meter.clear()
 
     if total == 0:
         raise RuntimeError("No timed/evaluated batches were processed. Reduce warmup_steps or increase data.")
@@ -375,7 +397,8 @@ def evaluate_model(
         loss=total_loss / total,
         acc=correct / total,
         latency_ms_per_batch=float(sum(step_times) / len(step_times)) if step_times else 0.0,
-        flops_per_batch=meter.flops,
+        flops_per_batch=int(sum(step_flops) / len(step_flops)) if step_flops else 0,
+        batch_size=int(measured_batch_size) if measured_batch_size is not None else 0,
         param_count_tensors=param_count,
         model_size_mb=size_mb,
         dtype_numel=dtype_stats,
@@ -386,12 +409,23 @@ def to_dict(res: EvalResult) -> Dict[str, object]:
     return {
         "flops_per_batch": res.flops_per_batch,
         "latency_ms_per_batch": res.latency_ms_per_batch,
+        "batch_size": res.batch_size,
         "model_size_mb": res.model_size_mb,
         "param_count_tensors": res.param_count_tensors,
         "loss": res.loss,
         "accuracy": res.acc,
         "dtype_numel": res.dtype_numel,
     }
+
+
+def sanitize_json(obj):
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_json(v) for v in obj]
+    return obj
 
 
 def parse_args() -> argparse.Namespace:
@@ -409,6 +443,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--warmup-steps", type=int, default=5)
     p.add_argument("--temporal-sampling", type=str, default="index", choices=["index", "interpolate"])
+    p.add_argument("--use-ghost-conv", action="store_true")
+    p.add_argument("--ghost-ratio", type=int, default=2)
+    p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -435,7 +472,14 @@ def main() -> None:
 
     sd = checkpoint_to_state_dict(args.finetuned_ckpt)
     num_class = infer_num_class(sd, args.num_class)
-    model_fp32, load_info = load_finetuned_model(args.finetuned_ckpt, num_class, args.dropout)
+    model_fp32, load_info = load_finetuned_model(
+        args.finetuned_ckpt,
+        num_class,
+        args.dropout,
+        args.use_ghost_conv,
+        args.ghost_ratio,
+        args.ghost_mode,
+    )
     print(f"[load] loaded={load_info['loaded']} skipped={load_info['skipped']} num_class={num_class}")
 
     # Quantize supported layers to int8, then cast remaining floating tensors to fp16 fallback.
@@ -467,12 +511,13 @@ def main() -> None:
         },
     }
 
+    summary = sanitize_json(summary)
     summary_path = out_dir / "summary.json"
     with summary_path.open("w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(summary, f, indent=2, allow_nan=False)
 
     print(f"[done] summary saved: {summary_path}")
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2, allow_nan=False))
 
 
 if __name__ == "__main__":

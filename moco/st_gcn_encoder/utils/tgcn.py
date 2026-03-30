@@ -30,7 +30,8 @@ class ConvTemporalGraphical(nn.Module):
                  t_dilation=1,
                  bias=True,
                  use_ghost_conv=False,
-                 ghost_ratio=2):
+                 ghost_ratio=2,
+                 ghost_mode="all"):
         super(ConvTemporalGraphical,self).__init__()
 
         self.kernel_size = kernel_size
@@ -38,6 +39,9 @@ class ConvTemporalGraphical(nn.Module):
         kwargs = {}
         if use_ghost_conv:
             kwargs["ratio"] = ghost_ratio
+        if use_ghost_conv and ghost_mode not in ("all", "kernel1"):
+            conv_cls = nn.Conv2d
+            kwargs = {}
         self.conv = conv_cls(
             in_channels,
             out_channels * kernel_size,

@@ -154,3 +154,4 @@ class Config:
     inter_dist = False
     use_ghost_conv = False
     ghost_ratio = 2
+    ghost_mode = "all"

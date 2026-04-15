@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 
 from feeder.single_dataset.WLASL import WLASL
 from moco.builder_dist import MASA
+from moco.low_rank_modules import apply_low_rank_structure
 from quantize_finetuned_int8_fp16_report import (
     WLASLSupervisedEval,
     checkpoint_to_state_dict,
@@ -20,7 +21,7 @@ from quantize_finetuned_int8_fp16_report import (
 )
 
 
-def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost_mode):
+def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost_mode, use_low_rank, low_rank_ratio, low_rank_targets, low_rank_min_features):
     sd = checkpoint_to_state_dict(ckpt_path)
     model = MASA(
         skeleton_representation="graph-based",
@@ -31,12 +32,20 @@ def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost
         ghost_ratio=ghost_ratio,
         ghost_mode=ghost_mode,
     )
+    low_rank_stats = None
+    if use_low_rank:
+        low_rank_stats = apply_low_rank_structure(
+            model,
+            rank_ratio=low_rank_ratio,
+            target_spec=low_rank_targets,
+            min_features=low_rank_min_features,
+        )
     msd = model.state_dict()
     loadable = {k: v for k, v in sd.items() if k in msd and msd[k].shape == v.shape}
     skipped = len(sd) - len(loadable)
     msd.update(loadable)
     model.load_state_dict(msd, strict=False)
-    return model, {"loaded": len(loadable), "skipped": skipped}
+    return model, {"loaded": len(loadable), "skipped": skipped, "low_rank": low_rank_stats}
 
 
 def load_eval_result(
@@ -55,6 +64,10 @@ def load_eval_result(
     use_ghost_conv,
     ghost_ratio,
     ghost_mode,
+    use_low_rank,
+    low_rank_ratio,
+    low_rank_targets,
+    low_rank_min_features,
 ):
     criterion = nn.CrossEntropyLoss()
     base_test = WLASL(data_root=data_root, data_split="test", subset_num=subset_num, use_cache=False)
@@ -77,6 +90,10 @@ def load_eval_result(
         use_ghost_conv,
         ghost_ratio,
         ghost_mode,
+        use_low_rank,
+        low_rank_ratio,
+        low_rank_targets,
+        low_rank_min_features,
     )
     result = evaluate_model(model, test_loader, criterion, device, state_path, warmup_steps)
     return inferred_num_class, load_info, result
@@ -99,9 +116,17 @@ def parse_args():
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
+    p.add_argument("--use-low-rank", action="store_true")
+    p.add_argument("--low-rank-ratio", type=float, default=0.25)
+    p.add_argument("--low-rank-targets", type=str, default="transformer")
+    p.add_argument("--low-rank-min-features", type=int, default=64)
     p.add_argument("--baseline-use-ghost-conv", action="store_true")
     p.add_argument("--baseline-ghost-ratio", type=int, default=2)
     p.add_argument("--baseline-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
+    p.add_argument("--baseline-use-low-rank", action="store_true")
+    p.add_argument("--baseline-low-rank-ratio", type=float, default=0.25)
+    p.add_argument("--baseline-low-rank-targets", type=str, default="transformer")
+    p.add_argument("--baseline-low-rank-min-features", type=int, default=64)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -125,6 +150,10 @@ def main():
         args.use_ghost_conv,
         args.ghost_ratio,
         args.ghost_mode,
+        args.use_low_rank,
+        args.low_rank_ratio,
+        args.low_rank_targets,
+        args.low_rank_min_features,
     )
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,6 +165,10 @@ def main():
         "use_ghost_conv": args.use_ghost_conv,
         "ghost_ratio": args.ghost_ratio,
         "ghost_mode": args.ghost_mode,
+        "use_low_rank": args.use_low_rank,
+        "low_rank_ratio": args.low_rank_ratio,
+        "low_rank_targets": args.low_rank_targets,
+        "low_rank_min_features": args.low_rank_min_features,
         "metrics": to_dict(result),
     }
 
@@ -156,6 +189,10 @@ def main():
             args.baseline_use_ghost_conv,
             args.baseline_ghost_ratio,
             args.baseline_ghost_mode,
+            args.baseline_use_low_rank,
+            args.baseline_low_rank_ratio,
+            args.baseline_low_rank_targets,
+            args.baseline_low_rank_min_features,
         )
         summary["baseline"] = {
             "checkpoint": args.baseline_ckpt,
@@ -163,6 +200,10 @@ def main():
             "use_ghost_conv": args.baseline_use_ghost_conv,
             "ghost_ratio": args.baseline_ghost_ratio,
             "ghost_mode": args.baseline_ghost_mode,
+            "use_low_rank": args.baseline_use_low_rank,
+            "low_rank_ratio": args.baseline_low_rank_ratio,
+            "low_rank_targets": args.baseline_low_rank_targets,
+            "low_rank_min_features": args.baseline_low_rank_min_features,
             "metrics": to_dict(baseline_result),
         }
         summary["delta_vs_baseline"] = {

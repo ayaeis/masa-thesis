@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from feeder.single_dataset.WLASL import WLASL
 from moco.builder_dist import MASA
+from moco.low_rank_modules import LowRankLinear, apply_low_rank_structure
 
 
 class Int8Linear(nn.Module):
@@ -101,6 +102,8 @@ def replace_int8_supported_layers(module: nn.Module) -> Dict[str, int]:
             if isinstance(child, nn.Linear):
                 setattr(m, name, Int8Linear(child))
                 stats["linear"] += 1
+            elif isinstance(child, LowRankLinear):
+                _walk(child)
             elif isinstance(child, nn.Conv1d):
                 setattr(m, name, Int8Conv1d(child))
                 stats["conv1d"] += 1
@@ -219,6 +222,10 @@ def load_finetuned_model(
     use_ghost_conv: bool,
     ghost_ratio: int,
     ghost_mode: str,
+    use_low_rank: bool,
+    low_rank_ratio: float,
+    low_rank_targets: str,
+    low_rank_min_features: int,
 ) -> Tuple[nn.Module, Dict[str, int]]:
     sd = checkpoint_to_state_dict(ckpt_path)
     model = MASA(
@@ -230,12 +237,20 @@ def load_finetuned_model(
         ghost_ratio=ghost_ratio,
         ghost_mode=ghost_mode,
     )
+    low_rank_stats = None
+    if use_low_rank:
+        low_rank_stats = apply_low_rank_structure(
+            model,
+            rank_ratio=low_rank_ratio,
+            target_spec=low_rank_targets,
+            min_features=low_rank_min_features,
+        )
     msd = model.state_dict()
     loadable = {k: v for k, v in sd.items() if k in msd and msd[k].shape == v.shape}
     skipped = len(sd) - len(loadable)
     msd.update(loadable)
     model.load_state_dict(msd, strict=False)
-    return model, {"loaded": len(loadable), "skipped": skipped}
+    return model, {"loaded": len(loadable), "skipped": skipped, "low_rank": low_rank_stats}
 
 
 def infer_model_input_dtype(model: nn.Module) -> torch.dtype:
@@ -446,6 +461,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
+    p.add_argument("--use-low-rank", action="store_true")
+    p.add_argument("--low-rank-ratio", type=float, default=0.25)
+    p.add_argument("--low-rank-targets", type=str, default="transformer")
+    p.add_argument("--low-rank-min-features", type=int, default=64)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -479,6 +498,10 @@ def main() -> None:
         args.use_ghost_conv,
         args.ghost_ratio,
         args.ghost_mode,
+        args.use_low_rank,
+        args.low_rank_ratio,
+        args.low_rank_targets,
+        args.low_rank_min_features,
     )
     print(f"[load] loaded={load_info['loaded']} skipped={load_info['skipped']} num_class={num_class}")
 
@@ -499,6 +522,10 @@ def main() -> None:
     summary = {
         "checkpoint": args.finetuned_ckpt,
         "load_info": load_info,
+        "use_low_rank": args.use_low_rank,
+        "low_rank_ratio": args.low_rank_ratio,
+        "low_rank_targets": args.low_rank_targets,
+        "low_rank_min_features": args.low_rank_min_features,
         "int8_applied_modules": int8_applied,
         "before_fp32": to_dict(before),
         "after_int8_supported_fp16_fallback": to_dict(after),

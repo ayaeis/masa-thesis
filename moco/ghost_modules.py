@@ -15,21 +15,12 @@ class GhostConv1d(nn.Module):
         dilation=1,
         groups=1,
         ratio=2,
-        primary_ratio=None,
         bias=True,
     ):
         super().__init__()
-        if primary_ratio is not None:
-            primary_ratio = float(primary_ratio)
-            if not (0.0 < primary_ratio < 1.0):
-                raise ValueError(f"primary_ratio must be in (0, 1), got {primary_ratio}")
-            init_channels = max(1, int(math.ceil(out_channels * primary_ratio)))
-            init_channels = min(init_channels, out_channels)
-            cheap_channels = max(0, out_channels - init_channels)
-        else:
-            ratio = max(2, int(ratio))
-            init_channels = int(math.ceil(out_channels / ratio))
-            cheap_channels = init_channels * (ratio - 1)
+        ratio = max(2, int(ratio))
+        init_channels = int(math.ceil(out_channels / ratio))
+        cheap_channels = init_channels * (ratio - 1)
 
         self.primary_conv = nn.Conv1d(
             in_channels,
@@ -75,21 +66,12 @@ class GhostConv2d(nn.Module):
         dilation=1,
         groups=1,
         ratio=2,
-        primary_ratio=None,
         bias=True,
     ):
         super().__init__()
-        if primary_ratio is not None:
-            primary_ratio = float(primary_ratio)
-            if not (0.0 < primary_ratio < 1.0):
-                raise ValueError(f"primary_ratio must be in (0, 1), got {primary_ratio}")
-            init_channels = max(1, int(math.ceil(out_channels * primary_ratio)))
-            init_channels = min(init_channels, out_channels)
-            cheap_channels = max(0, out_channels - init_channels)
-        else:
-            ratio = max(2, int(ratio))
-            init_channels = int(math.ceil(out_channels / ratio))
-            cheap_channels = init_channels * (ratio - 1)
+        ratio = max(2, int(ratio))
+        init_channels = int(math.ceil(out_channels / ratio))
+        cheap_channels = init_channels * (ratio - 1)
 
         self.primary_conv = nn.Conv2d(
             in_channels,

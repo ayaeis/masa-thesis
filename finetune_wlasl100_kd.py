@@ -38,7 +38,7 @@ def load_checkpoint_strict_false(model, ckpt_path):
     return {"loaded": len(loadable), "skipped": skipped}
 
 
-def build_model(num_class, dropout, use_ghost_conv, ghost_ratio, ghost_primary_ratio, ghost_mode):
+def build_model(num_class, dropout, use_ghost_conv, ghost_ratio, ghost_mode):
     return MASA(
         skeleton_representation="graph-based",
         num_class=num_class,
@@ -46,7 +46,6 @@ def build_model(num_class, dropout, use_ghost_conv, ghost_ratio, ghost_primary_r
         dropout=dropout,
         use_ghost_conv=use_ghost_conv,
         ghost_ratio=ghost_ratio,
-        ghost_primary_ratio=ghost_primary_ratio,
         ghost_mode=ghost_mode,
     )
 
@@ -164,11 +163,9 @@ def parse_args():
     p.add_argument("--kd-temp", type=float, default=4.0)
     p.add_argument("--teacher-use-ghost-conv", action="store_true")
     p.add_argument("--teacher-ghost-ratio", type=int, default=2)
-    p.add_argument("--teacher-ghost-primary-ratio", type=float, default=None)
     p.add_argument("--teacher-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--student-use-ghost-conv", action="store_true")
     p.add_argument("--student-ghost-ratio", type=int, default=2)
-    p.add_argument("--student-ghost-primary-ratio", type=float, default=None)
     p.add_argument("--student-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--out-dir", type=str, default="./checkpoints_finetune_wlasl100_kd")
     return p.parse_args()
@@ -236,7 +233,6 @@ def main():
         args.dropout,
         args.teacher_use_ghost_conv,
         args.teacher_ghost_ratio,
-        args.teacher_ghost_primary_ratio,
         args.teacher_ghost_mode,
     )
     student = build_model(
@@ -244,7 +240,6 @@ def main():
         args.dropout,
         args.student_use_ghost_conv,
         args.student_ghost_ratio,
-        args.student_ghost_primary_ratio,
         args.student_ghost_mode,
     )
 
@@ -397,11 +392,9 @@ def main():
         "kd_temp": args.kd_temp,
         "teacher_use_ghost_conv": args.teacher_use_ghost_conv,
         "teacher_ghost_ratio": args.teacher_ghost_ratio,
-        "teacher_ghost_primary_ratio": args.teacher_ghost_primary_ratio,
         "teacher_ghost_mode": args.teacher_ghost_mode,
         "student_use_ghost_conv": args.student_use_ghost_conv,
         "student_ghost_ratio": args.student_ghost_ratio,
-        "student_ghost_primary_ratio": args.student_ghost_primary_ratio,
         "student_ghost_mode": args.student_ghost_mode,
     }
     with (out_dir / "summary.json").open("w", encoding="utf-8") as f:

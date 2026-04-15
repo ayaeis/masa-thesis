@@ -20,7 +20,7 @@ from quantize_finetuned_int8_fp16_report import (
 )
 
 
-def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost_mode):
+def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost_primary_ratio, ghost_mode):
     sd = checkpoint_to_state_dict(ckpt_path)
     model = MASA(
         skeleton_representation="graph-based",
@@ -29,6 +29,7 @@ def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost
         dropout=dropout,
         use_ghost_conv=use_ghost_conv,
         ghost_ratio=ghost_ratio,
+        ghost_primary_ratio=ghost_primary_ratio,
         ghost_mode=ghost_mode,
     )
     msd = model.state_dict()
@@ -54,6 +55,7 @@ def load_eval_result(
     state_path,
     use_ghost_conv,
     ghost_ratio,
+    ghost_primary_ratio,
     ghost_mode,
 ):
     criterion = nn.CrossEntropyLoss()
@@ -76,6 +78,7 @@ def load_eval_result(
         dropout,
         use_ghost_conv,
         ghost_ratio,
+        ghost_primary_ratio,
         ghost_mode,
     )
     result = evaluate_model(model, test_loader, criterion, device, state_path, warmup_steps)
@@ -98,9 +101,11 @@ def parse_args():
     p.add_argument("--temporal-sampling", type=str, default="index", choices=["index", "interpolate"])
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
+    p.add_argument("--ghost-primary-ratio", type=float, default=None)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--baseline-use-ghost-conv", action="store_true")
     p.add_argument("--baseline-ghost-ratio", type=int, default=2)
+    p.add_argument("--baseline-ghost-primary-ratio", type=float, default=None)
     p.add_argument("--baseline-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
@@ -124,6 +129,7 @@ def main():
         out_path := Path(args.out).with_name(Path(args.out).stem + "_state_dict.pth"),
         args.use_ghost_conv,
         args.ghost_ratio,
+        args.ghost_primary_ratio,
         args.ghost_mode,
     )
     out_path = Path(args.out)
@@ -135,6 +141,7 @@ def main():
         "load_info": load_info,
         "use_ghost_conv": args.use_ghost_conv,
         "ghost_ratio": args.ghost_ratio,
+        "ghost_primary_ratio": args.ghost_primary_ratio,
         "ghost_mode": args.ghost_mode,
         "metrics": to_dict(result),
     }
@@ -155,6 +162,7 @@ def main():
             out_path.with_name(out_path.stem + "_baseline_state_dict.pth"),
             args.baseline_use_ghost_conv,
             args.baseline_ghost_ratio,
+            args.baseline_ghost_primary_ratio,
             args.baseline_ghost_mode,
         )
         summary["baseline"] = {
@@ -162,6 +170,7 @@ def main():
             "load_info": baseline_load_info,
             "use_ghost_conv": args.baseline_use_ghost_conv,
             "ghost_ratio": args.baseline_ghost_ratio,
+            "ghost_primary_ratio": args.baseline_ghost_primary_ratio,
             "ghost_mode": args.baseline_ghost_mode,
             "metrics": to_dict(baseline_result),
         }

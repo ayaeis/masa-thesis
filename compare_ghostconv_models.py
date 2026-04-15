@@ -18,7 +18,7 @@ from quantize_finetuned_int8_fp16_report import (
 from moco.builder_dist import MASA
 
 
-def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost_mode):
+def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost_primary_ratio, ghost_mode):
     sd = checkpoint_to_state_dict(ckpt_path)
     model = MASA(
         skeleton_representation="graph-based",
@@ -27,6 +27,7 @@ def load_model(ckpt_path, num_class, dropout, use_ghost_conv, ghost_ratio, ghost
         dropout=dropout,
         use_ghost_conv=use_ghost_conv,
         ghost_ratio=ghost_ratio,
+        ghost_primary_ratio=ghost_primary_ratio,
         ghost_mode=ghost_mode,
     )
     msd = model.state_dict()
@@ -57,6 +58,7 @@ def parse_args():
     p.add_argument("--num-class", type=int, default=100)
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--ghost-ratio", type=int, default=2)
+    p.add_argument("--ghost-primary-ratio", type=float, default=None)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--target-t", type=int, default=32)
     p.add_argument("--batch-size", type=int, default=32)
@@ -84,8 +86,8 @@ def main():
         collate_fn=collate_supervised,
     )
 
-    baseline, baseline_load = load_model(args.ckpt, args.num_class, args.dropout, False, args.ghost_ratio, args.ghost_mode)
-    ghost, ghost_load = load_model(args.ckpt, args.num_class, args.dropout, True, args.ghost_ratio, args.ghost_mode)
+    baseline, baseline_load = load_model(args.ckpt, args.num_class, args.dropout, False, args.ghost_ratio, args.ghost_primary_ratio, args.ghost_mode)
+    ghost, ghost_load = load_model(args.ckpt, args.num_class, args.dropout, True, args.ghost_ratio, args.ghost_primary_ratio, args.ghost_mode)
 
     out_dir = Path(args.out).parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -111,7 +113,7 @@ def main():
         "checkpoint": args.ckpt,
         "num_class": args.num_class,
         "baseline": {**to_dict(baseline_stats), "load_info": baseline_load},
-        "ghost_first_pass": {**to_dict(ghost_stats), "load_info": ghost_load, "ghost_ratio": args.ghost_ratio, "ghost_mode": args.ghost_mode},
+        "ghost_first_pass": {**to_dict(ghost_stats), "load_info": ghost_load, "ghost_ratio": args.ghost_ratio, "ghost_primary_ratio": args.ghost_primary_ratio, "ghost_mode": args.ghost_mode},
         "delta": {
             "param_change": ghost_stats.param_count_tensors - baseline_stats.param_count_tensors,
             "state_size_mb_change": ghost_stats.model_size_mb - baseline_stats.model_size_mb,

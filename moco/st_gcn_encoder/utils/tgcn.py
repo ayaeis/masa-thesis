@@ -31,6 +31,7 @@ class ConvTemporalGraphical(nn.Module):
                  bias=True,
                  use_ghost_conv=False,
                  ghost_ratio=2,
+                 ghost_primary_ratio=None,
                  ghost_mode="all"):
         super(ConvTemporalGraphical,self).__init__()
 
@@ -39,6 +40,7 @@ class ConvTemporalGraphical(nn.Module):
         kwargs = {}
         if use_ghost_conv:
             kwargs["ratio"] = ghost_ratio
+            kwargs["primary_ratio"] = ghost_primary_ratio
         if use_ghost_conv and ghost_mode not in ("all", "kernel1"):
             conv_cls = nn.Conv2d
             kwargs = {}

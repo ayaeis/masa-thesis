@@ -218,6 +218,7 @@ def load_finetuned_model(
     dropout: float,
     use_ghost_conv: bool,
     ghost_ratio: int,
+    ghost_primary_ratio: float,
     ghost_mode: str,
 ) -> Tuple[nn.Module, Dict[str, int]]:
     sd = checkpoint_to_state_dict(ckpt_path)
@@ -228,6 +229,7 @@ def load_finetuned_model(
         dropout=dropout,
         use_ghost_conv=use_ghost_conv,
         ghost_ratio=ghost_ratio,
+        ghost_primary_ratio=ghost_primary_ratio,
         ghost_mode=ghost_mode,
     )
     msd = model.state_dict()
@@ -445,6 +447,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--temporal-sampling", type=str, default="index", choices=["index", "interpolate"])
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
+    p.add_argument("--ghost-primary-ratio", type=float, default=None)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
@@ -478,6 +481,7 @@ def main() -> None:
         args.dropout,
         args.use_ghost_conv,
         args.ghost_ratio,
+        args.ghost_primary_ratio,
         args.ghost_mode,
     )
     print(f"[load] loaded={load_info['loaded']} skipped={load_info['skipped']} num_class={num_class}")

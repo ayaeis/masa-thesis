@@ -257,6 +257,12 @@ def parse_args():
     p.add_argument("--min-delta", type=float, default=0.0)
     p.add_argument("--target-t", type=int, default=32)
     p.add_argument("--seed", type=int, default=123)
+    p.add_argument(
+        "--fc-dropout",
+        type=float,
+        default=None,
+        help="Optional dropout before the classifier head. Leave unset to preserve old baseline behavior.",
+    )
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
@@ -340,6 +346,7 @@ def main():
         skeleton_representation="graph-based",
         num_class=args.num_class,
         pretrain=False,
+        dropout=args.fc_dropout,
         use_ghost_conv=args.use_ghost_conv,
         ghost_ratio=args.ghost_ratio,
         ghost_mode=args.ghost_mode,

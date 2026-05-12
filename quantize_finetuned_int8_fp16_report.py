@@ -461,10 +461,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--use-ghost-conv", action="store_true")
     p.add_argument("--ghost-ratio", type=int, default=2)
     p.add_argument("--ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
+    p.add_argument("--baseline-ckpt", default=None)
+    p.add_argument("--baseline-use-ghost-conv", action="store_true")
+    p.add_argument("--baseline-ghost-ratio", type=int, default=2)
+    p.add_argument("--baseline-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--use-low-rank", action="store_true")
     p.add_argument("--low-rank-ratio", type=float, default=0.25)
     p.add_argument("--low-rank-targets", type=str, default="transformer")
     p.add_argument("--low-rank-min-features", type=int, default=64)
+    p.add_argument("--baseline-use-low-rank", action="store_true")
+    p.add_argument("--baseline-low-rank-ratio", type=float, default=0.25)
+    p.add_argument("--baseline-low-rank-targets", type=str, default="transformer")
+    p.add_argument("--baseline-low-rank-min-features", type=int, default=64)
     p.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -537,6 +545,54 @@ def main() -> None:
             "accuracy_drop": before.acc - after.acc,
         },
     }
+
+    if args.baseline_ckpt:
+        baseline_sd = checkpoint_to_state_dict(args.baseline_ckpt)
+        baseline_num_class = infer_num_class(baseline_sd, args.num_class)
+        baseline_model, baseline_load_info = load_finetuned_model(
+            args.baseline_ckpt,
+            baseline_num_class,
+            args.dropout,
+            args.baseline_use_ghost_conv,
+            args.baseline_ghost_ratio,
+            args.baseline_ghost_mode,
+            args.baseline_use_low_rank,
+            args.baseline_low_rank_ratio,
+            args.baseline_low_rank_targets,
+            args.baseline_low_rank_min_features,
+        )
+        baseline_eval = evaluate_model(
+            baseline_model,
+            test_loader,
+            criterion,
+            device,
+            out_dir / "baseline_state_dict.pth",
+            args.warmup_steps,
+        )
+        summary["baseline"] = {
+            "checkpoint": args.baseline_ckpt,
+            "load_info": baseline_load_info,
+            "use_ghost_conv": args.baseline_use_ghost_conv,
+            "ghost_ratio": args.baseline_ghost_ratio,
+            "ghost_mode": args.baseline_ghost_mode,
+            "use_low_rank": args.baseline_use_low_rank,
+            "low_rank_ratio": args.baseline_low_rank_ratio,
+            "low_rank_targets": args.baseline_low_rank_targets,
+            "low_rank_min_features": args.baseline_low_rank_min_features,
+            "metrics": to_dict(baseline_eval),
+        }
+        summary["delta_vs_baseline"] = {
+            "loss_change": after.loss - baseline_eval.loss,
+            "accuracy_drop": baseline_eval.acc - after.acc,
+            "latency_speedup_x": (
+                baseline_eval.latency_ms_per_batch / after.latency_ms_per_batch
+                if after.latency_ms_per_batch > 0
+                else None
+            ),
+            "flops_change": after.flops_per_batch - baseline_eval.flops_per_batch,
+            "param_count_change": after.param_count_tensors - baseline_eval.param_count_tensors,
+            "model_size_mb_change": after.model_size_mb - baseline_eval.model_size_mb,
+        }
 
     summary = sanitize_json(summary)
     summary_path = out_dir / "summary.json"

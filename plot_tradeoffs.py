@@ -51,20 +51,20 @@ DISPLAY_NAMES = {
 
 
 LABEL_OFFSETS = {
-    "Baseline": (8, 6),
-    "Quant-Baseline": (8, -12),
-    "Ghost-all": (8, 6),
-    "Ghost-k1": (8, -12),
-    "Ghost-gt1": (8, 6),
-    "QGhost-all": (8, -12),
-    "QGhost-k1": (8, 6),
-    "QGhost-gt1": (8, -12),
-    "KD-Ghost-all": (8, 6),
-    "KD-Ghost-k1": (8, -12),
-    "KD-Ghost-gt1": (8, 6),
-    "QKD-Ghost-all": (8, -12),
+    "Baseline": (10, 6),
+    "Quant-Baseline": (10, -14),
+    "Ghost-all": (-34, -2),
+    "Ghost-k1": (6, -14),
+    "Ghost-gt1": (10, 4),
+    "QGhost-all": (8, -14),
+    "QGhost-k1": (-28, 6),
+    "QGhost-gt1": (-44, -2),
+    "KD-Ghost-all": (-34, 6),
+    "KD-Ghost-k1": (10, -14),
+    "KD-Ghost-gt1": (10, 6),
+    "QKD-Ghost-all": (8, -14),
     "QKD-Ghost-k1": (8, 6),
-    "QKD-Ghost-gt1": (8, -12),
+    "QKD-Ghost-gt1": (-52, -12),
 }
 
 
@@ -168,17 +168,17 @@ def make_legend() -> List[Line2D]:
 
 
 def plot_accuracy_vs_flops(points: List[ModelPoint]) -> None:
-    fig, ax = plt.subplots(figsize=(7.6, 5.4))
+    fig, ax = plt.subplots(figsize=(8.8, 5.8))
     for p in points:
         style = FAMILY_STYLES[p.family]
         ax.scatter(
             p.flops_per_batch,
             p.accuracy_pct,
-            s=62,
+            s=78,
             color=style["color"],
             marker=style["marker"],
             edgecolors="white",
-            linewidths=0.6,
+            linewidths=0.8,
         )
 
     annotate_points(ax, points, "flops_per_batch", "accuracy_pct")
@@ -188,29 +188,32 @@ def plot_accuracy_vs_flops(points: List[ModelPoint]) -> None:
     ax.set_title("Accuracy–FLOPs Trade-off", fontsize=13, color="#111111", pad=10)
     ax.legend(
         handles=make_legend(),
-        loc="lower left",
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
         frameon=False,
         fontsize=9,
-        ncol=2,
+        ncol=3,
+        columnspacing=1.4,
+        handletextpad=0.5,
     )
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "accuracy_vs_flops.png", dpi=400, bbox_inches="tight")
     fig.savefig(OUT_DIR / "accuracy_vs_flops.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
 def plot_accuracy_vs_latency(points: List[ModelPoint]) -> None:
-    fig, ax = plt.subplots(figsize=(7.6, 5.4))
+    fig, ax = plt.subplots(figsize=(8.8, 5.8))
     for p in points:
         style = FAMILY_STYLES[p.family]
         ax.scatter(
             p.latency_ms_per_batch,
             p.accuracy_pct,
-            s=62,
+            s=78,
             color=style["color"],
             marker=style["marker"],
             edgecolors="white",
-            linewidths=0.6,
+            linewidths=0.8,
         )
 
     annotate_points(ax, points, "latency_ms_per_batch", "accuracy_pct")
@@ -220,12 +223,15 @@ def plot_accuracy_vs_latency(points: List[ModelPoint]) -> None:
     ax.set_title("Accuracy–Latency Trade-off", fontsize=13, color="#111111", pad=10)
     ax.legend(
         handles=make_legend(),
-        loc="lower left",
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.18),
         frameon=False,
         fontsize=9,
-        ncol=2,
+        ncol=3,
+        columnspacing=1.4,
+        handletextpad=0.5,
     )
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     fig.savefig(OUT_DIR / "accuracy_vs_latency.png", dpi=400, bbox_inches="tight")
     fig.savefig(OUT_DIR / "accuracy_vs_latency.pdf", bbox_inches="tight")
     plt.close(fig)

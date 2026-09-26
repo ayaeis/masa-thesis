@@ -9,7 +9,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from feeder.single_dataset.WLASL import WLASL
-from quantize_finetuned_int8_fp16_report import (
+from quantization_report import (
     WLASLSupervisedEval,
     collate_supervised,
     evaluate_model,

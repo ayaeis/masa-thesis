@@ -26,3 +26,9 @@ __pycache__/
 # misc
 *.log
 .DS_Store
+
+# Generated experiment outputs and local recovery files
+fall_results/
+lowrank_experiments/
+.ipynb_checkpoints/
+*.before_reorg.bak

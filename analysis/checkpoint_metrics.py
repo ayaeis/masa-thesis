@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from feeder.single_dataset.WLASL import WLASL
 from moco.builder_dist import MASA
 from moco.low_rank_modules import apply_low_rank_structure
-from quantize_finetuned_int8_fp16_report import (
+from quantization_report import (
     WLASLSupervisedEval,
     checkpoint_to_state_dict,
     collate_supervised,

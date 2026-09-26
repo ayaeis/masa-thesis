@@ -2,20 +2,16 @@
 set -euo pipefail
 
 ROOT="/workspace/masa-thesis"
-ENV_ACTIVATE="/workspace/masa_env/bin/activate"
-DATA_ROOT="/workspace/kaggle_wlasl100/masa_ready/WLASL"
-GHOST_INIT_CKPT="$ROOT/baseline_ckpt/best.pth.tar"
-BASELINE_CKPT="$ROOT/baseline_ckpt/best.pth.tar"
-OUT_ROOT="$ROOT/final_result"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+PYTHON="/workspace/masa_env_rebuilt/bin/python"
+DATA_ROOT="/workspace/WLASL/latest_full_wlasl/official_wlasl100/masa_ready/WLASL"
+GHOST_INIT_CKPT="$ROOT/fall_results/wlasl100/baseline/best.pth.tar"
+BASELINE_CKPT="$ROOT/fall_results/wlasl100/baseline/best.pth.tar"
+OUT_ROOT="$ROOT/fall_results/wlasl100/overnight_final_run"
 REPORT_DIR="$OUT_ROOT/reports"
 LOG_DIR="$OUT_ROOT/logs"
 
 mkdir -p "$OUT_ROOT" "$REPORT_DIR" "$LOG_DIR"
-
-if [[ -f "$ENV_ACTIVATE" ]]; then
-  # shellcheck disable=SC1090
-  source "$ENV_ACTIVATE"
-fi
 
 cd "$ROOT"
 
@@ -138,7 +134,7 @@ declare -A GHOST_MODE_MAP=(
 baseline_report="$REPORT_DIR/baseline_report.json"
 if [[ ! -f "$baseline_report" ]]; then
   run_logged "01_baseline_report" \
-    python "$ROOT/report_checkpoint_metrics.py" \
+    "$PYTHON" "$ROOT/analysis/checkpoint_metrics.py" \
       --ckpt "$BASELINE_CKPT" \
       --out "$baseline_report" \
       "${COMMON_EVAL_ARGS[@]}"
@@ -146,7 +142,7 @@ fi
 
 if [[ ! -f "$OUT_ROOT/quant_baseline/summary.json" ]]; then
   run_logged "02_quant_baseline" \
-    python "$ROOT/quantize_finetuned_int8_fp16_report.py" \
+    "$PYTHON" "$ROOT/analysis/quantization_report.py" \
       --finetuned-ckpt "$BASELINE_CKPT" \
       --out-dir "$OUT_ROOT/quant_baseline" \
       "${COMMON_QUANT_ARGS[@]}"
@@ -166,7 +162,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$ghost_ckpt" ]]; then
     run_logged "03_train_ghost_${tag}" \
-      python "$ROOT/finetune_wlasl100.py" \
+      "$PYTHON" "$ROOT/training/wlasl/finetune.py" \
         "${COMMON_TRAIN_ARGS[@]}" \
         --use-ghost-conv \
         --ghost-ratio 2 \
@@ -176,7 +172,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$ghost_report" ]]; then
     run_logged "04_eval_ghost_${tag}" \
-      python "$ROOT/report_checkpoint_metrics.py" \
+      "$PYTHON" "$ROOT/analysis/checkpoint_metrics.py" \
         --ckpt "$ghost_ckpt" \
         --baseline-ckpt "$BASELINE_CKPT" \
         --out "$ghost_report" \
@@ -188,7 +184,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$quant_ghost_dir/summary.json" ]]; then
     run_logged "05_quant_ghost_${tag}" \
-      python "$ROOT/quantize_finetuned_int8_fp16_report.py" \
+      "$PYTHON" "$ROOT/analysis/quantization_report.py" \
         --finetuned-ckpt "$ghost_ckpt" \
         --out-dir "$quant_ghost_dir" \
         "${COMMON_QUANT_ARGS[@]}" \
@@ -199,7 +195,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$kd_ckpt" ]]; then
     run_logged "06_train_kd_ghost_${tag}" \
-      python "$ROOT/finetune_wlasl100_kd.py" \
+      "$PYTHON" "$ROOT/training/wlasl/finetune_ghost_kd.py" \
         "${COMMON_KD_ARGS[@]}" \
         --student-ckpt "$ghost_ckpt" \
         --student-use-ghost-conv \
@@ -210,7 +206,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$kd_report_baseline" ]]; then
     run_logged "07_eval_kd_ghost_${tag}_vs_baseline" \
-      python "$ROOT/report_checkpoint_metrics.py" \
+      "$PYTHON" "$ROOT/analysis/checkpoint_metrics.py" \
         --ckpt "$kd_ckpt" \
         --baseline-ckpt "$BASELINE_CKPT" \
         --out "$kd_report_baseline" \
@@ -222,7 +218,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$kd_report_ghost" ]]; then
     run_logged "08_eval_kd_ghost_${tag}_vs_ghost" \
-      python "$ROOT/report_checkpoint_metrics.py" \
+      "$PYTHON" "$ROOT/analysis/checkpoint_metrics.py" \
         --ckpt "$kd_ckpt" \
         --baseline-ckpt "$ghost_ckpt" \
         --out "$kd_report_ghost" \
@@ -237,7 +233,7 @@ for tag in allk k1 gt1; do
 
   if [[ ! -f "$quant_kd_dir/summary.json" ]]; then
     run_logged "09_quant_kd_ghost_${tag}" \
-      python "$ROOT/quantize_finetuned_int8_fp16_report.py" \
+      "$PYTHON" "$ROOT/analysis/quantization_report.py" \
         --finetuned-ckpt "$kd_ckpt" \
         --out-dir "$quant_kd_dir" \
         "${COMMON_QUANT_ARGS[@]}" \

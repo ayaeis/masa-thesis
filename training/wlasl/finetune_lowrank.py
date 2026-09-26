@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
 from feeder.single_dataset.WLASL import WLASL
-from finetune_wlasl100 import WLASLSupervised, collate_supervised, run_epoch, set_seed, strip_prefix_if_present
+from finetune import WLASLSupervised, collate_supervised, run_epoch, set_seed, strip_prefix_if_present
 from moco.builder_dist import MASA
 from moco.low_rank_modules import apply_low_rank_from_dense
 

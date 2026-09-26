@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 
 from feeder.single_dataset.WLASL import WLASL
-from finetune_wlasl100 import WLASLSupervised, collate_supervised, set_seed
+from finetune import WLASLSupervised, collate_supervised, set_seed
 from moco.builder_dist import MASA
 
 

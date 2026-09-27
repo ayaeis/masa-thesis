@@ -4,10 +4,10 @@ set -euo pipefail
 ROOT="/workspace/masa-thesis"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 PYTHON="/workspace/masa_env_rebuilt/bin/python"
-DATA_ROOT="/workspace/WLASL/latest_full_wlasl/official_wlasl100/masa_ready/WLASL"
-GHOST_INIT_CKPT="$ROOT/fall_results/wlasl100/baseline/best.pth.tar"
-BASELINE_CKPT="$ROOT/fall_results/wlasl100/baseline/best.pth.tar"
-OUT_ROOT="$ROOT/fall_results/wlasl100/overnight_final_run"
+DATA_ROOT="/workspace/WLASL/latest_full_wlasl/official_wlasl300/masa_ready/WLASL"
+GHOST_INIT_CKPT="$ROOT/fall_results/wlasl300/baseline/best.pth.tar"
+BASELINE_CKPT="$ROOT/fall_results/wlasl300/baseline/best.pth.tar"
+OUT_ROOT="$ROOT/fall_results/wlasl300/overnight_final_run"
 REPORT_DIR="$OUT_ROOT/reports"
 LOG_DIR="$OUT_ROOT/logs"
 
@@ -48,8 +48,8 @@ ensure_file "$GHOST_INIT_CKPT"
 COMMON_TRAIN_ARGS=(
   --data-root "$DATA_ROOT"
   --pretrained "$GHOST_INIT_CKPT"
-  --num-class 100
-  --subset-num 100
+  --num-class 300
+  --subset-num 300
   --epochs 60
   --batch-size 64
   --workers 8
@@ -73,11 +73,11 @@ COMMON_TRAIN_ARGS=(
 
 COMMON_EVAL_ARGS=(
   --data-root "$DATA_ROOT"
-  --subset-num 100
+  --subset-num 300
   --target-t 32
   --batch-size 32
   --workers 8
-  --num-class 100
+  --num-class 300
   --dropout 0.0
   --warmup-steps 5
   --temporal-sampling index
@@ -85,11 +85,11 @@ COMMON_EVAL_ARGS=(
 
 COMMON_QUANT_ARGS=(
   --data-root "$DATA_ROOT"
-  --subset-num 100
+  --subset-num 300
   --target-t 32
   --batch-size 32
   --workers 8
-  --num-class 100
+  --num-class 300
   --dropout 0.0
   --warmup-steps 5
   --temporal-sampling index
@@ -99,8 +99,8 @@ COMMON_QUANT_ARGS=(
 COMMON_KD_ARGS=(
   --data-root "$DATA_ROOT"
   --teacher-ckpt "$BASELINE_CKPT"
-  --subset-num 100
-  --num-class 100
+  --subset-num 300
+  --num-class 300
   --epochs 60
   --batch-size 64
   --workers 8
@@ -268,8 +268,8 @@ for config in "${LOWRANK_CONFIGS[@]}"; do
       "$PYTHON" "$ROOT/training/wlasl/finetune_lowrank.py" \
         --data-root "$DATA_ROOT" \
         --dense-ckpt "$BASELINE_CKPT" \
-        --subset-num 100 \
-        --num-class 100 \
+        --subset-num 300 \
+        --num-class 300 \
         --epochs 60 \
         --batch-size 64 \
         --workers 8 \

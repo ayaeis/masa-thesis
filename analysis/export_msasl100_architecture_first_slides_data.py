@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 
@@ -34,11 +35,17 @@ def report_baseline(report: dict) -> dict:
 
 
 def assert_same_model_metrics(reference: dict, candidate: dict, label: str) -> None:
-    """Latency is benchmark noise; the other baseline model metrics must agree."""
+    """Allow only report-derived latency and size-estimate variation."""
     for key in METRIC_KEYS:
         if key == "latency_ms_per_batch":
             continue
-        if reference[key] != candidate[key]:
+        # model_size_mb is calculated by a serialization-based utility and can
+        # vary by a few bytes across otherwise identical report processes.
+        if key == "model_size_mb":
+            matches = math.isclose(reference[key], candidate[key], abs_tol=0.01)
+        else:
+            matches = reference[key] == candidate[key]
+        if not matches:
             raise ValueError(
                 f"Baseline mismatch in {label} for {key}: "
                 f"{candidate[key]} != {reference[key]}"

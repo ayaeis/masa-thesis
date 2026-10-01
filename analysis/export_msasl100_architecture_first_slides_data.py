@@ -33,8 +33,11 @@ def report_baseline(report: dict) -> dict:
     return metrics(report["baseline"]["metrics"])
 
 
-def assert_same_metrics(reference: dict, candidate: dict, label: str) -> None:
+def assert_same_model_metrics(reference: dict, candidate: dict, label: str) -> None:
+    """Latency is benchmark noise; the other baseline model metrics must agree."""
     for key in METRIC_KEYS:
+        if key == "latency_ms_per_batch":
+            continue
         if reference[key] != candidate[key]:
             raise ValueError(
                 f"Baseline mismatch in {label} for {key}: "
@@ -82,7 +85,10 @@ def build_payload(results_root: Path) -> dict:
         for stage, path in paths.items():
             report = read_json(path)
             item = entry(labels[stage], stage, report)
-            assert_same_metrics(baseline, item["baseline_metrics"], str(path))
+            assert_same_model_metrics(baseline, item["baseline_metrics"], str(path))
+            # Each report times its own baseline invocation. Use one canonical
+            # measurement so every slide compares against the same baseline.
+            item["baseline_metrics"] = baseline
             items.append(item)
         methods[method] = items
 

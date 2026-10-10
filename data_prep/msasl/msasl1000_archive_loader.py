@@ -25,11 +25,14 @@ class MSASL1000Archive(MSASL):
             path = root / name
             if path.is_file():
                 exclusions.extend(json.loads(path.read_text()))
-        excluded = {
-            item["filename"] for item in exclusions if item["split"] == data_split
-        }
-
         if data_split == "train":
+            # The native MSASL feeder combines training and validation into
+            # one dataset, so exclusions from both source splits apply here.
+            excluded = {
+                item["filename"]
+                for item in exclusions
+                if item["split"] in {"train", "val"}
+            }
             train = [
                 row for row in self.video_list[:self.flag].tolist()
                 if row[0] not in excluded
@@ -41,6 +44,11 @@ class MSASL1000Archive(MSASL):
             self.flag = len(train)
             self.video_list = np.asarray(train + val, dtype=str)
         else:
+            excluded = {
+                item["filename"]
+                for item in exclusions
+                if item["split"] == data_split
+            }
             self.video_list = np.asarray(
                 [row for row in self.video_list.tolist() if row[0] not in excluded],
                 dtype=str,

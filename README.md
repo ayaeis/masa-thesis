@@ -13,6 +13,11 @@ original RunPod settings. For example, the old MSASL200 runner is now invoked as
 `bash experiments/legacy/run_fall_msasl200_overnight.sh` from the repository root.
 They are historical runners, not the new university study launcher.
 
+The new university launchers are `experiments/run_wlasl_study.sh` and
+`experiments/run_msasl_study.sh`. Each takes one class-count variant and runs the
+complete reduced protocol, final standardized benchmarking, and result export.
+See the experiment guide for dry-run, launch, and restart commands.
+
 The requirements and preprocessing instructions below are the original MASA
 authors' documentation, not a verified environment specification for the
 university GPU.

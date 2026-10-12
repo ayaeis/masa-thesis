@@ -3,6 +3,7 @@ import argparse
 import copy
 import json
 import math
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -373,6 +374,7 @@ def evaluate_model(
     step_flops: List[int] = []
     warmup_done = 0
     measured_batch_size = None
+    predictions = [] if os.environ.get('MASA_STUDY_PREDICTIONS') == '1' else None
 
     with torch.no_grad():
         for x, y in tqdm(loader, ncols=100, leave=False):
@@ -405,9 +407,15 @@ def evaluate_model(
             total += bs
             total_loss += float(loss.item()) * bs
             correct += int((torch.argmax(logits, dim=1) == y).sum().item())
+            if predictions is not None:
+                predictions.extend(zip(y.cpu().tolist(), logits.argmax(dim=1).cpu().tolist()))
 
     if total == 0:
         raise RuntimeError("No timed/evaluated batches were processed. Reduce warmup_steps or increase data.")
+
+    if predictions is not None:
+        from experiments.run_study import save_predictions
+        save_predictions(loader, predictions, out_model_path)
 
     return EvalResult(
         loss=total_loss / total,

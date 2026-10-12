@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from training.study_state import StageState, add_restart_args
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -168,6 +170,7 @@ def parse_args():
     p.add_argument("--student-ghost-ratio", type=int, default=2)
     p.add_argument("--student-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
     p.add_argument("--out-dir", type=str, default="./checkpoints_finetune_wlasl100_kd")
+    add_restart_args(p)
     return p.parse_args()
 
 
@@ -318,7 +321,10 @@ def main():
             if "encoder_q.proj.fc" not in name:
                 p.requires_grad = False
 
-    for epoch in range(1, args.epochs + 1):
+    stage = StageState(args, student, optimizer, scheduler, out_dir)
+    start_epoch, best_val, best_epoch, history, no_improve = stage.restore()
+
+    for epoch in range(start_epoch, args.epochs + 1):
         if args.freeze_epochs > 0 and epoch == (args.freeze_epochs + 1):
             for p in student.parameters():
                 p.requires_grad = True
@@ -363,6 +369,8 @@ def main():
             )
         else:
             no_improve += 1
+
+        stage.save(epoch, best_val, best_epoch, history, no_improve)
 
         print(
             f"Epoch {epoch:02d} | "

@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 
+from training.study_state import StageState, add_restart_args
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
@@ -60,6 +62,7 @@ def parse_args():
     p.add_argument("--low-rank-targets", type=str, default="transformer")
     p.add_argument("--low-rank-min-features", type=int, default=64)
     p.add_argument("--out-dir", type=str, default="./ckpt_lowrank")
+    add_restart_args(p)
     return p.parse_args()
 
 
@@ -155,7 +158,10 @@ def main():
             if "encoder_q.proj.fc" not in name:
                 p.requires_grad = False
 
-    for epoch in range(1, args.epochs + 1):
+    stage = StageState(args, model, optimizer, scheduler, out_dir)
+    start_epoch, best_val, best_epoch, history, no_improve = stage.restore()
+
+    for epoch in range(start_epoch, args.epochs + 1):
         if args.freeze_epochs > 0 and epoch == (args.freeze_epochs + 1):
             for p in model.parameters():
                 p.requires_grad = True
@@ -199,6 +205,8 @@ def main():
             )
         else:
             no_improve += 1
+
+        stage.save(epoch, best_val, best_epoch, history, no_improve)
 
         print(
             f"Epoch {epoch:02d} | "

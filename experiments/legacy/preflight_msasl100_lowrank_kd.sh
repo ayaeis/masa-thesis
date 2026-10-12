@@ -7,7 +7,7 @@ DATA_ROOT="/workspace/MSASL/native_masa_ready/MSASL"
 RESULTS_ROOT="${RESULTS_ROOT:-/workspace/masa-thesis/fall_results}"
 BASELINE_CKPT="$RESULTS_ROOT/msasl100/baseline/best.pth.tar"
 LOWRANK_ROOT="$RESULTS_ROOT/msasl100/overnight_final_run/lowrank"
-RUN="$ROOT/run_msasl100_lowrank_kd.sh"
+RUN="$ROOT/experiments/legacy/run_msasl100_lowrank_kd.sh"
 
 [[ -d "$DATA_ROOT" ]] || { echo "[FAIL] Missing MSASL data: $DATA_ROOT"; exit 1; }
 [[ -f "$BASELINE_CKPT" ]] || { echo "[FAIL] Missing dense baseline: $BASELINE_CKPT"; exit 1; }

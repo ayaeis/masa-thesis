@@ -7,7 +7,7 @@ DATA_ROOT="/workspace/MSASL/native_masa_ready/MSASL"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-/workspace/checkpoints/pretrained_model.pth.tar}"
 RESULTS_ROOT="${RESULTS_ROOT:-/workspace/masa-thesis/fall_results}"
 BASELINE_CKPT="$RESULTS_ROOT/msasl100/baseline/best.pth.tar"
-RUN="$ROOT/run_msasl100_architecture_first.sh"
+RUN="$ROOT/experiments/legacy/run_msasl100_architecture_first.sh"
 
 [[ -d "$DATA_ROOT" ]] || { echo "[FAIL] Missing MSASL data: $DATA_ROOT"; exit 1; }
 [[ -f "$PRETRAIN_CKPT" ]] || { echo "[FAIL] Missing MASA pretraining checkpoint: $PRETRAIN_CKPT"; exit 1; }

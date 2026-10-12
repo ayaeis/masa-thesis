@@ -1,4 +1,22 @@
 # MASA: Motion-aware Masked Autoencoder with Semantic Alignment for Sign Language Recognition
+
+## Thesis Compression Study
+
+The current thesis study compares post-training and architecture-first compression
+on WLASL100, WLASL300, MSASL100, MSASL200, and MSASL1000.
+See [the experiment guide](experiments/README.md) for the agreed protocol, code
+layout, university workspace paths, and prerequisites for new runs.
+
+Earlier RunPod runners and preflights are preserved in
+[`experiments/legacy/`](experiments/legacy/). Their training commands retain the
+original RunPod settings. For example, the old MSASL200 runner is now invoked as
+`bash experiments/legacy/run_fall_msasl200_overnight.sh` from the repository root.
+They are historical runners, not the new university study launcher.
+
+The requirements and preprocessing instructions below are the original MASA
+authors' documentation, not a verified environment specification for the
+university GPU.
+
 [Weichao Zhao](https://scholar.google.com/citations?user=v-ASmMIAAAAJ&hl=zh-CN), [Hezhen Hu](https://scholar.google.com/citations?user=Fff-9WAAAAAJ&hl=zh-CN&oi=ao), [Wengang Zhou](https://scholar.google.com/citations?user=8s1JF8YAAAAJ&hl=zh-CN&oi=ao), [Yunyao Mao](https://scholar.google.com/citations?user=uQJ7Df0AAAAJ&hl=en), [Min Wang](https://scholar.google.com/citations?user=FFDionEAAAAJ&hl=zh-CN&oi=ao) and [Houqiang Li](https://scholar.google.com/citations?user=7sFMIKoAAAAJ&hl=zh-CN&oi=ao)
 
 This repository includes Python (PyTorch) implementation of this paper.

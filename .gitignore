@@ -9,12 +9,14 @@ checkpoints/
 runs/
 *.pt
 *.pth
+*.pth.tar
 *.ckpt
 
 # virtual environments
 venv/
 env/
 .venv/
+environments/
 
 # python
 __pycache__/
@@ -29,6 +31,9 @@ __pycache__/
 
 # Generated experiment outputs and local recovery files
 fall_results/
+results/
+logs/
+quant_out/
 lowrank_experiments/
 .ipynb_checkpoints/
 *.before_reorg.bak

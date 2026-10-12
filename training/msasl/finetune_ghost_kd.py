@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 
-from data_prep.msasl.msasl200_archive_loader import MSASLArchive as MSASL
+from data_prep.msasl.archive_loader import load_archive as MSASL
 from finetune import MSASLSupervised, collate_supervised, set_seed
 from moco.builder_dist import MASA
 

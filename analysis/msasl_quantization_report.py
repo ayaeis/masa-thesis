@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from data_prep.msasl.msasl200_archive_loader import MSASLArchive as MSASL
+from data_prep.msasl.archive_loader import load_archive as MSASL
 from moco.builder_dist import MASA
 from moco.low_rank_modules import LowRankLinear, apply_low_rank_structure
 

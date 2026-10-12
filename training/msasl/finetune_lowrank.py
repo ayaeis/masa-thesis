@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
-from data_prep.msasl.msasl200_archive_loader import MSASLArchive as MSASL
+from data_prep.msasl.archive_loader import load_archive as MSASL
 from finetune import MSASLSupervised, collate_supervised, run_epoch, set_seed, strip_prefix_if_present
 from moco.builder_dist import MASA
 from moco.low_rank_modules import apply_low_rank_from_dense

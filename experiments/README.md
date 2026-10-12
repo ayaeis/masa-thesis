@@ -110,6 +110,29 @@ They include extra ratios and low-rank KD ablations that are excluded from the
 final study. Their matching preflights now reference runners in this directory.
 Moving scripts does not change the trainers or existing result artifacts.
 
+## Added Study Support
+
+`training/wlasl/finetune_lowrank_architecture_first.py` provides the same
+`pretrained_dense` and `resume_low_rank` stages as the MSASL counterpart, with
+WLASL's dataset adapter and `--subset-num`. Optimizer, scheduler, epoch loop, and
+checkpoint selection match the MSASL implementation.
+
+MSASL trainers and the checkpoint/quantization evaluators now use
+`data_prep/msasl/archive_loader.py`: class count 1000 selects
+`MSASL1000Archive`; existing 100/200 runs retain `MSASLArchive`. The underlying
+loader filtering rules and prepared dataset files are unchanged.
+
+Run the focused CPU checks from the repository root using the study environment:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+These check loader routing and exclusions, exact factor restoration without SVD,
+rejection of incompatible checkpoints, new-stage optimizer/schedule reset, and
+training-logic parity. They use small synthetic fixtures rather than the full
+datasets, so a university model/data smoke test is still required.
+
 ## Before Launching the New Study
 
 This cleanup organizes existing code; it does not supply a new five-dataset
@@ -117,14 +140,12 @@ university launcher yet. Remaining implementation and environment work:
 
 1. Finish transfer verification and repair relocated symlinks.
 2. Verify an isolated university environment and one short loader/model test.
-3. Route every MSASL1000 trainer and evaluator through its archive loader,
-   including exclusions; test class count and split boundaries.
-4. Extend architecture-first low-rank continuation to WLASL while preserving
-   the agreed training behavior.
-5. Create the reduced study launcher with fresh output directories, saved full
+3. Smoke-test the added WLASL continuation and MSASL1000 loader routing with
+   the real university data and checkpoints.
+4. Create the reduced study launcher with fresh output directories, saved full
    arguments, source Git revision, environment versions, dataset manifest hashes,
    and initialization/teacher/student checkpoint hashes.
-6. Support job continuation within Slurm time limits. Resuming an interrupted
+5. Support job continuation within Slurm time limits. Resuming an interrupted
    stage must preserve optimizer, scheduler, and random state; beginning the
    second planned stage intentionally resets optimizer and schedule.
 

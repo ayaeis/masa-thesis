@@ -1,4 +1,4 @@
-"""CPU tests for archive selection and two-stage low-rank checkpoint loading."""
+"""CPU tests for archive routing, checkpoint loading, and WLASL2000 frame reuse."""
 
 import ast
 import importlib.util
@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -48,6 +49,98 @@ class TinyModel(nn.Module):
 
     def forward(self, x):
         return self.encoder_q.GCN_Tran(x)
+
+
+class FrameReuseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        path = ROOT / 'data_prep/wlasl/reconstruct_official_wlasl2000.py'
+        spec = importlib.util.spec_from_file_location('wlasl2000_frames', path)
+        cls.prep = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.prep)
+
+    def test_reuse_links_validate_destinations_and_follow_indirect_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'wlasl100_frames'
+            source.mkdir()
+            indirect = root / 'wlasl300_frames'
+            indirect.symlink_to(source)
+            destination = root / 'wlasl2000/frames'
+            self.prep.link_relative(indirect, destination)
+            self.assertFalse(os.path.isabs(os.readlink(destination)))
+            self.assertEqual(destination.resolve(), source.resolve())
+            self.prep.link_relative(indirect, destination)
+            for kind in ('wrong', 'broken', 'file', 'directory'):
+                dst = root / kind
+                if kind in ('wrong', 'broken'):
+                    dst.symlink_to(root if kind == 'wrong' else root / 'absent')
+                    original = os.readlink(dst)
+                elif kind == 'file':
+                    dst.write_bytes(b'preserve me')
+                else:
+                    dst.mkdir()
+                with self.assertRaisesRegex(RuntimeError, 'Conflicting reuse destination'):
+                    self.prep.link_relative(indirect, dst)
+                if kind in ('wrong', 'broken'):
+                    self.assertEqual(os.readlink(dst), original)
+                elif kind == 'file':
+                    self.assertEqual(dst.read_bytes(), b'preserve me')
+                else:
+                    self.assertTrue(dst.is_dir())
+            with self.assertRaisesRegex(RuntimeError, 'Missing reuse source'):
+                self.prep.link_relative(root / 'absent', root / 'new_link')
+
+    def test_completed_frames_require_nonempty_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frames = Path(tmp) / 'frames'
+            frames.mkdir()
+            marker = frames / '.complete'
+            marker.touch()
+            with patch.object(self.prep.subprocess, 'run') as ffmpeg:
+                for kind in ('empty', 'zero_byte', 'directory_named_jpg'):
+                    image = frames / 'img_000001.jpg'
+                    if kind == 'zero_byte':
+                        image.touch()
+                    elif kind == 'directory_named_jpg':
+                        image.unlink()
+                        image.mkdir()
+                    self.assertFalse(self.prep.completed_frames(frames))
+                    with self.assertRaisesRegex(RuntimeError, 'Invalid completed frame directory'):
+                        self.prep.extract_frames(Path(tmp) / 'clip.mp4', frames)
+                image.rmdir()
+                image.write_bytes(b'nonempty jpeg fixture')
+                self.assertEqual(self.prep.extract_frames('clip.mp4', frames)[0], 'skipped')
+                ffmpeg.assert_not_called()
+
+    def test_extract_and_resume_keep_legacy_ffmpeg_command(self):
+        import ast
+        commands = []
+        for subset in (100, 300, 2000):
+            path = ROOT / f'data_prep/wlasl/reconstruct_official_wlasl{subset}.py'
+            tree = ast.parse(path.read_text())
+            function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                            and node.name == 'extract_frames')
+            call = next(node for node in ast.walk(function) if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute) and node.func.attr == 'run')
+            commands.append(ast.dump(call.args[0], include_attributes=False))
+        self.assertEqual(len(set(commands)), 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            frames = Path(tmp) / 'frames'
+            def fake_decode(command, **kwargs):
+                Path(command[-1].replace('%06d', '000001')).write_bytes(b'jpeg')
+                return SimpleNamespace(returncode=0, stderr='')
+            with patch.object(self.prep.subprocess, 'run', side_effect=fake_decode) as ffmpeg:
+                self.assertEqual(self.prep.extract_frames('clip.mp4', frames)[0], 'done')
+                self.assertEqual(self.prep.extract_frames('clip.mp4', frames)[0], 'skipped')
+                self.assertEqual(ffmpeg.call_count, 1)
+            empty_frames = Path(tmp) / 'empty_decode'
+            def empty_decode(command, **kwargs):
+                Path(command[-1].replace('%06d', '000001')).touch()
+                return SimpleNamespace(returncode=0, stderr='')
+            with patch.object(self.prep.subprocess, 'run', side_effect=empty_decode):
+                self.assertEqual(self.prep.extract_frames('clip.mp4', empty_frames)[0], 'failed')
+                self.assertFalse((empty_frames / '.complete').exists())
 
 
 class ArchiveTests(unittest.TestCase):

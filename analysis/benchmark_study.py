@@ -129,6 +129,21 @@ def count_forward_flops(model, batch):
                 cost = 2 * n * shape(ins[0])[-1]
                 if ins[2].type().kind() != 'NoneType':
                     cost += n
+            elif op == 'aten::addmm':
+                # PyTorch 1.8 may lower Linear to beta * bias + alpha * (A @ B).
+                beta, alpha = ins[3].toIValue(), ins[4].toIValue()
+                if beta is None or alpha is None:
+                    raise ValueError('Unknown addmm alpha/beta coefficients.')
+                left, right = shape(ins[1]), shape(ins[2])
+                if len(left) != 2 or len(right) != 2 or left[1] != right[0]:
+                    raise ValueError('Invalid addmm matrix shapes.')
+                cost = 2 * n * left[1]
+                if alpha != 1:
+                    cost += n
+                if beta != 0:
+                    cost += n  # Broadcast bias/residual addition.
+                    if beta != 1:
+                        cost += n
             elif op in ('aten::_convolution', 'aten::conv1d', 'aten::conv2d', 'aten::conv3d'):
                 if op == 'aten::_convolution' and ins[6].toIValue() is not False:
                     raise ValueError('Transposed convolution needs a separate formula.')

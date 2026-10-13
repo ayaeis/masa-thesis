@@ -357,6 +357,25 @@ class FlopTests(unittest.TestCase):
         self.assertEqual(count_forward_flops(LayerNorm(4).eval(), torch.randn(2, 4))['flops'], 68)
         self.assertEqual(count_forward_flops(torch.nn.BatchNorm1d(2).eval(), torch.randn(3, 2))['flops'], 28)
 
+    def test_addmm_matches_linear_and_counts_scaling(self):
+        from analysis.benchmark_study import count_forward_flops
+
+        class AddMM(torch.nn.Module):
+            def __init__(self, alpha=1, beta=1):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.randn(4, 2))
+                self.bias = torch.nn.Parameter(torch.randn(2))
+                self.alpha, self.beta = alpha, beta
+
+            def forward(self, x):
+                return torch.addmm(self.bias, x, self.weight, beta=self.beta, alpha=self.alpha)
+
+        x = torch.randn(3, 4)
+        for alpha, beta, expected in [(1, 1, 54), (1, 0, 48), (2, 1, 60), (2, 3, 66)]:
+            result = count_forward_flops(AddMM(alpha, beta).eval(), x)
+            self.assertEqual(result['by_operator'], {'aten::addmm': expected})
+        self.assertEqual(count_forward_flops(torch.nn.Linear(4, 2).eval(), x)['flops'], 54)
+
     def test_quantization_overhead_unknown_ops_and_control_flow(self):
         from analysis.benchmark_study import count_forward_flops
         from analysis.quantization_report import replace_int8_supported_layers

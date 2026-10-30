@@ -73,7 +73,7 @@ def dataset_root(workspace, family, classes):
 
 def build_plan(repo, python, workspace, family, classes, output, workers=8,
                warmup=30, repetitions=100, rounds=3):
-    allowed = {'wlasl': (100, 300), 'msasl': (100, 200, 1000)}
+    allowed = {'wlasl': (100, 300, 2000), 'msasl': (100, 200, 1000)}
     if family not in allowed or classes not in allowed[family]:
         raise ValueError('Unsupported dataset variant: {}{}'.format(family, classes))
     repo, workspace, output = Path(repo), Path(workspace), Path(output)
@@ -272,7 +272,7 @@ def preflight(manifest):
         if not labels <= set(range(manifest['classes'])):
             raise ValueError('Labels out of range in ' + split)
         for filename in files:
-            stem = filename.split('.')[0]
+            stem = Path(filename).stem
             for path in [root / 'jpg_video_ori' / split / stem / 'img_00001.jpg',
                          root / 'Keypoints_2d_mmpose' / split / (stem + '.pkl')]:
                 if not path.is_file():
@@ -384,14 +384,14 @@ def deltas(model, reference):
     return values
 
 
-def export(manifest_path, benchmark_path, directory):
+def export(manifest_path, benchmark_path, directory, expected_count=14):
     manifest = read_json(manifest_path)
     benchmark = read_json(benchmark_path)
     if manifest['dataset'] != benchmark['dataset']:
         raise ValueError('Benchmark dataset mismatch.')
     expected = {entry['id'] for entry in manifest['models']}
-    if expected != set(benchmark['models']) or len(expected) != 14:
-        raise ValueError('Expected exactly 14 matching benchmark models.')
+    if expected != set(benchmark['models']) or len(expected) != expected_count:
+        raise ValueError('Expected exactly {} matching benchmark models.'.format(expected_count))
     rows = []
     prediction_vectors = {}
     sample_identity = None
@@ -438,6 +438,9 @@ def export(manifest_path, benchmark_path, directory):
             # Recovery comparison uses the original FP32 Ghost student.
             reference_id = row['id'].split('_ghost_kd_')[0] + '_ghost_fp32'
             row['vs_pre_kd_ghost'] = deltas(row['metrics'], by_id[reference_id]['metrics'])
+        if '_lowrank_kd_' in row['id']:
+            reference_id = row['id'].split('_lowrank_kd_')[0] + '_lowrank_fp32'
+            row['vs_pre_kd_lowrank'] = deltas(row['metrics'], by_id[reference_id]['metrics'])
     directory.mkdir(parents=True, exist_ok=True)
     pairs = []
     for index, first in enumerate(rows):
@@ -460,7 +463,7 @@ def export(manifest_path, benchmark_path, directory):
             flat.update({key: row['metrics'][key] for key in RESOURCE_KEYS})
             flat.update({key + '_change_percent': row['vs_baseline'][key + '_relative_percent'] for key in RESOURCE_KEYS})
             writer.writerow(flat)
-    print('[PASS] Exported 14 standardized result rows to ' + str(directory), flush=True)
+    print('[PASS] Exported {} standardized result rows to {}'.format(len(rows), directory), flush=True)
 
 
 # Transferred dataset links

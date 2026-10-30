@@ -2,7 +2,7 @@
 
 ## Scope
 
-Datasets: WLASL100, WLASL300, MSASL100, MSASL200, MSASL1000.
+Datasets: WLASL100, WLASL300, WLASL2000, MSASL100, MSASL200, MSASL1000.
 
 | Result | Post-training | Architecture-first |
 | --- | --- | --- |
@@ -84,8 +84,8 @@ must not overlap latency measurements on the same GPU.
     logs/
 ```
 
-WLASL2000 is outside the five-dataset study. Its raw videos are retained for
-future preprocessing. MSASL100 and MSASL200 use class subsets of the same prepared
+WLASL2000 uses `official_wlasl2000/masa_ready/WLASL`, including reused WLASL100/300
+poses and frames. MSASL100 and MSASL200 use class subsets of the same prepared
 `MSASL` tree; MSASL1000 uses its own archive loader and recorded exclusions.
 
 Preserve relative links between the prepared trees. Absolute symlinks referring
@@ -308,3 +308,86 @@ PYTHONPATH="$PWD" /shared/g00107537/jupyter/environments/masa/bin/python \
 Add `--apply` to that command to perform validated repairs. It preserves relative
 links and regular file contents. Run it once before concurrent study launches;
 it may take time to scan all dataset entries.
+
+## Low-Rank KD Extension
+
+The original runners above retain their 14-model scope. To add low-rank KD
+without rerunning or overwriting those studies, use one sequential entry point:
+
+```bash
+cd /shared/g00107537/jupyter/masa-thesis
+PYTHONPATH="$PWD" /shared/g00107537/jupyter/environments/masa/bin/python -u \
+  experiments/run_lowrank_kd_study.py --dry-run
+```
+
+After transferring the updated code and reviewing the dry-run plan, launch:
+
+```bash
+mkdir -p /shared/g00107537/jupyter/logs
+nohup env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  PYTHONPATH="$PWD" /shared/g00107537/jupyter/environments/masa/bin/python -u \
+  experiments/run_lowrank_kd_study.py --workers 4 \
+  > /shared/g00107537/jupyter/logs/lowrank_kd_study.log 2>&1 < /dev/null &
+echo "Low-rank KD runner PID: $!"
+```
+
+One launch handles WLASL100, WLASL300, WLASL2000, MSASL100, MSASL200, then
+MSASL1000 on the same allocated GPU, sequentially. It adds 12 training stages
+of 60 epochs, followed by FP32 and quantized evaluations: 24 additional variants,
+18 total per dataset and 108 across six datasets. `--datasets` can select a
+smaller group; keep that selection unchanged when resuming that output root.
+
+For each dataset, M1 loads its original low-rank best checkpoint and M2 loads
+its original low-rank **stage-2** best checkpoint. Both use that dataset's
+original dense baseline best as teacher. The existing Ghost KD trainers gain an
+explicit `--student-use-low-rank` option; their loss, optimizer, scheduler, data
+adapters, and epoch loops are reused unchanged. Low-rank structures are built
+without SVD; configuration, tensor keys, shapes and dtypes must match. No
+partial checkpoint loading is allowed on this new path. Rank ratio 0.125,
+targets `transformer,conv,project_head`, minimum features 64, alpha 0.5,
+temperature 4, dropout argument 0.0, and all other Ghost KD study settings are
+preserved. Each KD stage starts a fresh optimizer, not the pre-KD optimizer.
+
+The script reads original artifacts from
+`results/compression_study_v1` and writes only under the separate
+`results/compression_study_lowrank_kd_v1` root, plus the shared GPU lock in
+`logs/`. Override these roots with `--study-root` and `--output-root`;
+overlapping/nested roots are rejected. The actual original `models.json` files
+select the checkpoints, so the separate WLASL2000 source checkout is not needed
+to locate its completed outputs.
+
+Before spending training time, required artifacts are checked for all selected
+datasets. Per-dataset preflight checks split/metadata/environment consistency
+against the original run and exercises exact checkpoint restoration and an
+actual small KD forward/backward in disposable subprocesses. These checks do
+not modify student or teacher checkpoints. CPU tests do not replace this GPU
+preflight. Original dataset hashes still do not cover every frame/pose byte.
+
+All 18 final variants are benchmarked with the existing standardized procedure
+on the same GPU and fixed inputs; original training/evaluations are not rerun.
+The fresh resource measurements may differ slightly from older CSVs, especially
+latency. Original result files remain unchanged. The weight audit includes the
+nine original training checkpoints and both new KD checkpoints. Evaluation
+predictions and all FLOP/parameter checks are preserved. New exports contain
+both `vs_baseline` and `vs_pre_kd_lowrank` comparisons in JSON; CSV changes remain
+relative to the dense FP32 baseline. Quantization retains the original runtime
+dequantization/FP16-fallback implementation, not native INT8 GPU kernels.
+
+Monitor the main log and a stage-specific log, for example:
+
+```bash
+tail -F /shared/g00107537/jupyter/logs/lowrank_kd_study.log \
+  /shared/g00107537/jupyter/results/compression_study_lowrank_kd_v1/wlasl100/logs/m1_lowrank_kd_train.log
+```
+
+Final per-dataset tables are `DATASET/comparisons/results.csv` and `results.json`.
+The extension root also contains `all_results.csv`, with 108 rows when all six
+datasets are selected. Checkpoints, histories, task logs, launch inputs, source
+hashes and restart states stay in that extension root.
+
+To continue after an interruption, run the identical launch with `--resume`.
+Completed tasks are verified and skipped; interrupted KD stages restore their
+epoch-boundary `last.pth.tar`. Do not edit code/packages or change the selected
+datasets while this extension is active. `nohup` permits laptop disconnection;
+it does not extend the university allocation or make a multi-day job finish
+within a shorter allocation.

@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from training.study_state import StageState, add_restart_args
+from training.study_state import StageState, add_restart_args, trusted_load
 
 import torch
 import torch.nn as nn
@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, Subset
 from feeder.single_dataset.WLASL import WLASL
 from finetune import WLASLSupervised, collate_supervised, set_seed
 from moco.builder_dist import MASA
+from moco.low_rank_modules import apply_low_rank_structure
 
 
 def strip_prefix_if_present(state_dict, prefix):
@@ -50,6 +51,40 @@ def build_model(num_class, dropout, use_ghost_conv, ghost_ratio, ghost_mode):
         ghost_ratio=ghost_ratio,
         ghost_mode=ghost_mode,
     )
+
+
+def load_exact_checkpoint(model, path, expected=None):
+    checkpoint = trusted_load(path)
+    if expected:
+        for key, value in expected.items():
+            if not isinstance(checkpoint, dict) or checkpoint.get(key) != value:
+                raise ValueError("Low-rank checkpoint configuration mismatch: " + key)
+    state = checkpoint.get("state_dict", checkpoint)
+    state = strip_prefix_if_present(state, "module.")
+    current = model.state_dict()
+    if any(key in current and value.dtype != current[key].dtype for key, value in state.items()):
+        raise ValueError("Checkpoint tensor dtype differs; refusing an implicit weight conversion.")
+    model.load_state_dict(state, strict=True)
+    return {"loaded": len(state), "skipped": 0}
+
+
+def build_low_rank_student(args):
+    if args.student_use_ghost_conv or args.teacher_use_ghost_conv:
+        raise ValueError("Low-rank KD requires a low-rank student and dense teacher, not Ghost.")
+    model = build_model(args.num_class, args.dropout, False, 2, "all")
+    stats = apply_low_rank_structure(
+        model, args.student_low_rank_ratio, args.student_low_rank_targets,
+        args.student_low_rank_min_features,
+    )
+    if not stats["num_replaced"]:
+        raise ValueError("No low-rank layers were constructed.")
+    metadata = {
+        "rank_ratio": args.student_low_rank_ratio,
+        "low_rank_targets": args.student_low_rank_targets,
+        "low_rank_min_features": args.student_low_rank_min_features,
+    }
+    info = load_exact_checkpoint(model, args.student_ckpt, metadata)
+    return model, info, metadata
 
 
 @dataclass
@@ -169,6 +204,10 @@ def parse_args():
     p.add_argument("--student-use-ghost-conv", action="store_true")
     p.add_argument("--student-ghost-ratio", type=int, default=2)
     p.add_argument("--student-ghost-mode", type=str, default="all", choices=["kernel1", "all", "gt1"])
+    p.add_argument("--student-use-low-rank", action="store_true")
+    p.add_argument("--student-low-rank-ratio", type=float, default=0.125)
+    p.add_argument("--student-low-rank-targets", default="transformer,conv,project_head")
+    p.add_argument("--student-low-rank-min-features", type=int, default=64)
     p.add_argument("--out-dir", type=str, default="./checkpoints_finetune_wlasl100_kd")
     add_restart_args(p)
     return p.parse_args()
@@ -238,16 +277,20 @@ def main():
         args.teacher_ghost_ratio,
         args.teacher_ghost_mode,
     )
-    student = build_model(
-        args.num_class,
-        args.dropout,
-        args.student_use_ghost_conv,
-        args.student_ghost_ratio,
-        args.student_ghost_mode,
-    )
-
-    teacher_load = load_checkpoint_strict_false(teacher, args.teacher_ckpt)
-    student_load = load_checkpoint_strict_false(student, args.student_ckpt)
+    low_rank_metadata = {}
+    if args.student_use_low_rank:
+        student, student_load, low_rank_metadata = build_low_rank_student(args)
+        teacher_load = load_exact_checkpoint(teacher, args.teacher_ckpt)
+    else:
+        student = build_model(
+            args.num_class,
+            args.dropout,
+            args.student_use_ghost_conv,
+            args.student_ghost_ratio,
+            args.student_ghost_mode,
+        )
+        teacher_load = load_checkpoint_strict_false(teacher, args.teacher_ckpt)
+        student_load = load_checkpoint_strict_false(student, args.student_ckpt)
     print(f"[teacher] loaded={teacher_load['loaded']} skipped={teacher_load['skipped']}")
     print(f"[student] loaded={student_load['loaded']} skipped={student_load['skipped']}")
 
@@ -364,6 +407,7 @@ def main():
                     "kd_temp": args.kd_temp,
                     "teacher_ckpt": args.teacher_ckpt,
                     "student_init_ckpt": args.student_ckpt,
+                    **low_rank_metadata,
                 },
                 str(best_path),
             )
@@ -404,6 +448,7 @@ def main():
         "student_use_ghost_conv": args.student_use_ghost_conv,
         "student_ghost_ratio": args.student_ghost_ratio,
         "student_ghost_mode": args.student_ghost_mode,
+        **low_rank_metadata,
     }
     with (out_dir / "summary.json").open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

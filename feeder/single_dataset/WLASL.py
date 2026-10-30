@@ -8,6 +8,7 @@ import copy
 import math
 import pickle as pkl
 from PIL import Image
+from feeder.single_dataset.wlasl_annotations import read_wlasl_annotations, clip_stem
 
 
 img_size = np.array([[256.0, 256.0]], dtype=np.float32)
@@ -54,23 +55,17 @@ class WLASL(torch.utils.data.Dataset):
         self.use_cache = use_cache
         subset_num = subset_num
         if self.data_split == 'train':
-            video_list_train = np.genfromtxt(
-                os.path.join(self.data_root, 'traintestlist', 'WLASL{a}/trainlist01.txt'.format(a=subset_num)),
-                delimiter=' ',
-                dtype=str).tolist()
-            video_list_val = np.genfromtxt(
-                os.path.join(self.data_root, 'traintestlist', 'WLASL{a}/vallist01.txt'.format(a=subset_num)),
-                delimiter=' ',
-                dtype=str).tolist()
+            video_list_train = read_wlasl_annotations(
+                os.path.join(self.data_root, 'traintestlist', 'WLASL{a}/trainlist01.txt'.format(a=subset_num)))
+            video_list_val = read_wlasl_annotations(
+                os.path.join(self.data_root, 'traintestlist', 'WLASL{a}/vallist01.txt'.format(a=subset_num)))
             video_list = video_list_train + video_list_val
             self.flag = len(video_list_train)
             self.annotation_path = os.path.join(self.data_root, 'Keypoints_2d_mmpose')
 
         elif self.data_split == 'test':
-            video_list = np.genfromtxt(
-                os.path.join(self.data_root, 'traintestlist', 'WLASL{a}/testlist01.txt'.format(a=subset_num)),
-                delimiter=' ',
-                dtype=str)
+            video_list = np.asarray(read_wlasl_annotations(
+                os.path.join(self.data_root, 'traintestlist', 'WLASL{a}/testlist01.txt'.format(a=subset_num))), dtype=str).reshape(-1, 2)
             self.annotation_path = os.path.join(self.data_root, 'Keypoints_2d_mmpose/test')
         if self.use_cache:
             with open(os.path.join(cache_home, f"{self.name}_{self.data_split}.pkl"), 'rb') as f:
@@ -99,16 +94,16 @@ class WLASL(torch.utils.data.Dataset):
                     data_split = 'val'
             else:
                 data_split = 'test'
-            sample_img = os.path.join(self.data_root, 'jpg_video_ori', data_split, video_name.split('.')[0],
+            sample_img = os.path.join(self.data_root, 'jpg_video_ori', data_split, clip_stem(video_name),
                                       'img_00001.jpg')
             img = Image.open(sample_img)
             ori_img_size = np.array([[img.width, img.height]], dtype=np.float32)
-            frames_path = os.path.join(self.data_root, 'jpg_video_ori', data_split, video_name.split('.')[0])
+            frames_path = os.path.join(self.data_root, 'jpg_video_ori', data_split, clip_stem(video_name))
             # import json file
             if self.data_split == 'train':
-                json_path = os.path.join(self.annotation_path, data_split, video_name.split('.')[0] + '.pkl')
+                json_path = os.path.join(self.annotation_path, data_split, clip_stem(video_name) + '.pkl')
             else:
-                json_path = os.path.join(self.annotation_path, video_name.split('.')[0] + '.pkl')
+                json_path = os.path.join(self.annotation_path, clip_stem(video_name) + '.pkl')
             video_data = pkl.load(open(json_path, 'rb'))
         return video_data, ori_img_size
 
@@ -501,14 +496,14 @@ class WLASL(torch.utils.data.Dataset):
                     data_split = 'val'
             else:
                 data_split = 'test'
-            sample_img = os.path.join(self.data_root, 'jpg_video_ori', data_split, video_name.split('.')[0],
+            sample_img = os.path.join(self.data_root, 'jpg_video_ori', data_split, clip_stem(video_name),
                                       'img_00001.jpg')
             img = Image.open(sample_img)
             ori_img_size = np.array([[img.width, img.height]], dtype=np.float32)
             if self.data_split == 'train':
-                json_path = os.path.join(self.annotation_path, data_split, video_name.split('.')[0] + '.pkl')
+                json_path = os.path.join(self.annotation_path, data_split, clip_stem(video_name) + '.pkl')
             else:
-                json_path = os.path.join(self.annotation_path, video_name.split('.')[0] + '.pkl')
+                json_path = os.path.join(self.annotation_path, clip_stem(video_name) + '.pkl')
             video_data = pkl.load(open(json_path, 'rb'))
             sample = {"video_name": video_name, 'video_data':video_data, 'label': label, 'img_size': ori_img_size}
             pkl_data[video_name] = sample

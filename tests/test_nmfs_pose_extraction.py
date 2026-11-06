@@ -227,6 +227,18 @@ class PoseExtractionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tool.model_metadata(SimpleNamespace(inferencer=inner), {"id": "manifest"})
 
+    def test_only_transient_top_level_visualizer_name_is_normalized(self):
+        first = ("model = dict(name='visualizer-123.1')\n"
+                 "visualizer = dict(\n    name='visualizer-1794002750.102702',\n"
+                 "    type='DetLocalVisualizer',\n    radius=3)\n")
+        second = first.replace("1794002750.102702", "1794002848.606203")
+        normalized = tool.stable_detector_config(first)
+        self.assertEqual(normalized, tool.stable_detector_config(second))
+        self.assertIn("model = dict(name='visualizer-123.1')", normalized)
+        self.assertNotEqual(normalized, tool.stable_detector_config(second.replace("radius=3", "radius=4")))
+        self.assertNotEqual(normalized, tool.stable_detector_config(second.replace("DetLocalVisualizer", "Other")))
+        self.assertEqual(tool.stable_detector_config(normalized), normalized)
+
     def test_overlay_writes_only_preview_images(self):
         manifest = self.manifest()
         before = tool.digest(self.root / "0/a/image_00001.jpg")

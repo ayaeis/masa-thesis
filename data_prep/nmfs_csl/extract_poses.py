@@ -184,6 +184,24 @@ def load_plan(path):
     return manifest
 
 
+def stable_detector_config(text):
+    # MMDetection generates a timestamped visualizer name on each initialization.
+    # Ignore only that field, only inside the top-level visualizer config block.
+    lines = text.splitlines(keepends=True)
+    in_visualizer = False
+    for i, line in enumerate(lines):
+        if line.startswith("visualizer = dict("):
+            in_visualizer = True
+        elif in_visualizer and line and not line[0].isspace():
+            in_visualizer = False
+        if in_visualizer:
+            lines[i] = re.sub(
+                r"^(    name=)'visualizer-[0-9]+(?:\.[0-9]+)?'(,?\s*)$",
+                r"\1'visualizer'\2", line,
+            )
+    return "".join(lines)
+
+
 def model_metadata(inferencer, manifest):
     import torch
     inner = inferencer.inferencer
@@ -208,7 +226,7 @@ def model_metadata(inferencer, manifest):
     return {
         "manifest_id": manifest["id"], "versions": versions,
         "resolved_pose_config": inner.cfg.pretty_text,
-        "resolved_detector_config": detector.model.cfg.pretty_text,
+        "resolved_detector_config": stable_detector_config(detector.model.cfg.pretty_text),
         "pose_tensor_sha256": state_hash(inner.model),
         "detector_tensor_sha256": state_hash(detector.model),
         "detector_categories": list(inner.det_cat_ids),

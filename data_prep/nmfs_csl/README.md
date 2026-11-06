@@ -91,6 +91,12 @@ The loaded pose and detector tensor hashes, resolved configs, versions, detector
 categories and inference behavior are recorded. Three workers must match that
 protocol. Automatic detector selection remains the same as WLASL's None/None
 arguments; resolved detector details are now recorded, not silently assumed.
+The generated `visualizer-<timestamp>` name in the top-level detector visualizer
+config is normalized for reproducible comparison. No weights, detection or pose
+settings are excluded. If updating from the initial tool before extraction has
+started, generate a new plan with a fresh output root (e.g. `NMFs-CSL-v2`) and
+manifest name. The earlier preview-only directory can remain as a record; do not
+bypass source-hash checks or edit old manifests to force compatibility.
 
 ## 3. Three-GPU pilot, after overlays are accepted
 
